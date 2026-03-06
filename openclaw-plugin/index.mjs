@@ -7,7 +7,7 @@ const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = nodePath.resolve(__dirname, "..");
 const SRC_DIR = nodePath.join(PROJECT_ROOT, "src");
 
-const ROUTE_PREFIX = "/plugins/knowledge";
+const ROUTE_PREFIX = "/plugins/js-knowledge";
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -131,6 +131,7 @@ export default function register(api) {
 
   api.registerHttpRoute({
     path: `${ROUTE_PREFIX}`,
+    auth: "gateway",
     async handler(req, res) {
       res.writeHead(301, { Location: `${ROUTE_PREFIX}/` });
       res.end();
@@ -139,6 +140,7 @@ export default function register(api) {
 
   api.registerHttpRoute({
     path: `${ROUTE_PREFIX}/`,
+    auth: "gateway",
     async handler(req, res) {
       serveStaticFile(res, nodePath.join(SRC_DIR, "index.html"));
     },
@@ -146,6 +148,7 @@ export default function register(api) {
 
   api.registerHttpRoute({
     path: `${ROUTE_PREFIX}/api/v1/articles.json`,
+    auth: "gateway",
     async handler(req, res) {
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
@@ -175,6 +178,7 @@ export default function register(api) {
 
   api.registerHttpRoute({
     path: `${ROUTE_PREFIX}/api/v1/stats.json`,
+    auth: "gateway",
     async handler(req, res) {
       const db = await getDb();
       try {
@@ -190,6 +194,7 @@ export default function register(api) {
 
   api.registerHttpRoute({
     path: `${ROUTE_PREFIX}/api/v1/articles/{id}`,
+    auth: "gateway",
     async handler(req, res) {
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
@@ -230,6 +235,7 @@ export default function register(api) {
 
   api.registerHttpRoute({
     path: `${ROUTE_PREFIX}/{filePath}`,
+    auth: "gateway",
     async handler(req, res) {
       const parsed = new URL(req.url, `http://${req.headers.host || "localhost"}`);
       const subPath = decodeURIComponent(
