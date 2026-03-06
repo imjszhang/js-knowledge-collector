@@ -1,0 +1,86 @@
+{
+  "id": "js-knowledge-collector",
+  "name": "JS Knowledge Collector",
+  "description": "知识收集器 — 为 AI Agent 提供网页抓取、AI 总结、知识库管理能力。支持微信公众号、知乎、小红书、X.com 等主流平台。",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "dbPath": {
+        "type": "string",
+        "default": "",
+        "description": "SQLite 数据库路径（留空则使用项目默认路径 data/data.db）"
+      },
+      "llmApiBaseUrl": {
+        "type": "string",
+        "default": "",
+        "description": "LLM API 基础 URL（OpenAI 兼容接口）"
+      },
+      "llmApiKey": {
+        "type": "string",
+        "default": "",
+        "description": "LLM API Key"
+      },
+      "llmApiModel": {
+        "type": "string",
+        "default": "gpt-4.1-mini",
+        "description": "LLM 模型名称"
+      },
+      "flomoWebhookUrl": {
+        "type": "string",
+        "default": "",
+        "description": "Flomo Webhook URL（留空则不启用 Flomo 推送）"
+      },
+      "serverPort": {
+        "type": "number",
+        "default": 3000,
+        "description": "内置 HTTP 服务器端口"
+      },
+      "autoStartServer": {
+        "type": "boolean",
+        "default": false,
+        "description": "是否随插件加载自动启动内置 HTTP 服务器"
+      }
+    }
+  },
+  "uiHints": {
+    "dbPath": {
+      "label": "数据库路径",
+      "placeholder": "data/data.db",
+      "help": "SQLite 数据库文件路径，留空使用默认位置"
+    },
+    "llmApiBaseUrl": {
+      "label": "LLM API 地址",
+      "placeholder": "https://api.openai.com/v1",
+      "help": "OpenAI 兼容的 LLM API 基础 URL"
+    },
+    "llmApiKey": {
+      "label": "LLM API Key",
+      "help": "LLM 服务的 API 密钥",
+      "secret": true
+    },
+    "llmApiModel": {
+      "label": "LLM 模型",
+      "placeholder": "gpt-4.1-mini",
+      "help": "用于生成摘要和推荐的 LLM 模型名称"
+    },
+    "flomoWebhookUrl": {
+      "label": "Flomo Webhook",
+      "placeholder": "https://flomoapp.com/iwh/...",
+      "help": "Flomo 的 Webhook URL，留空则不推送",
+      "advanced": true
+    },
+    "serverPort": {
+      "label": "服务器端口",
+      "placeholder": "3000",
+      "help": "内置 HTTP 服务器端口号",
+      "advanced": true
+    },
+    "autoStartServer": {
+      "label": "自动启动服务器",
+      "help": "启用后 OpenClaw 启动时自动拉起内置 HTTP 服务器",
+      "advanced": true
+    }
+  }
+}
