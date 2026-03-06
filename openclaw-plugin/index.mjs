@@ -193,8 +193,9 @@ export default function register(api) {
   });
 
   api.registerHttpRoute({
-    path: `${ROUTE_PREFIX}/api/v1/articles/{id}`,
+    path: `${ROUTE_PREFIX}/api/v1/articles`,
     auth: "plugin",
+    match: "prefix",
     async handler(req, res) {
       if (req.method === "OPTIONS") {
         res.writeHead(204, {

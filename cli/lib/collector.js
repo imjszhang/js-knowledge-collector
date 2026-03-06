@@ -33,7 +33,8 @@ function convertUrl(url) {
 
 function shouldUseBrowser(url) {
     const ruleName = detectRuleName(url);
-    return ['x_com', 'zhihu_answer', 'zhihu_zhuanlan', 'xiaohongshu', 'jike', 'jike_original', 'jike_mobile', 'reddit'].includes(ruleName);
+    const httpOnlyRules = ['github'];
+    return !httpOnlyRules.includes(ruleName);
 }
 
 // ── 数据组装 ─────────────────────────────────────────────────────────
