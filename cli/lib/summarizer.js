@@ -70,10 +70,19 @@ async function readScrapeResult(filePath) {
     }
 }
 
+function cleanContent(raw) {
+    return raw
+        .replace(/!\[Image\]\([^)]*\)/g, '')
+        .replace(/\[[\s]*!\[Image\]\([^)]*\)\s*\]\([^)]*\)/g, '')
+        .replace(/^[\s]*(点击下方卡片，关注公众号|封面图片来自网络|文章为作者独立观点.*?立场。?)[\s]*$/gm, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function formatInput(content, title, sourceUrl) {
     let text = '';
     if (title) text += `标题: ${title}\n\n`;
-    text += content;
+    text += cleanContent(content);
     if (sourceUrl) text += `\n\n原文链接: ${sourceUrl}`;
     return text;
 }
