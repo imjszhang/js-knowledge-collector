@@ -32,6 +32,8 @@ const RULES = [
     { pattern: /^https:\/\/m\.okjike\.com\/originalPosts\/[\w]+/, name: 'jike_mobile' },
     { pattern: /^https:\/\/(x\.com|twitter\.com)\/\w+\/(status|article)\/\d+/, name: 'x_com' },
     { pattern: /^https:\/\/www\.reddit\.com\/r\/[\w]+\/comments\/[\w]+\//, name: 'reddit' },
+    { pattern: /bilibili\.com\/video\/|b23\.tv\//, name: 'bilibili' },
+    { pattern: /youtube\.com\/(watch|shorts|embed)|youtu\.be\//, name: 'youtube' },
     { pattern: /^https:\/\/github\.com\/[\w-]+\/[\w.-]+/, name: 'github' },
 ];
 
@@ -41,6 +43,7 @@ const CATEGORY_MAP = {
     zhihu_answer: 'zhihu', zhihu_zhuanlan: 'zhihu',
     jike: 'jike', jike_original: 'jike', jike_mobile: 'jike',
     x_com: 'x_com', reddit: 'reddit', github: 'github',
+    bilibili: 'bilibili', youtube: 'youtube',
     general: 'web',
 };
 
@@ -129,6 +132,79 @@ function downloadFile(url, filePath) {
     });
 }
 
+// ── 视频平台抓取（yt-dlp） ───────────────────────────────────────────
+
+/**
+ * 通过 yt-dlp 抓取视频平台内容（Bilibili / YouTube）
+ *
+ * @param {string} url 视频 URL
+ * @param {string} ruleName 'bilibili' | 'youtube'
+ * @returns {Promise<{outputPath: string, result: Object, category: string}>}
+ */
+async function scrapeVideo(url, ruleName) {
+    const log = (msg) => process.stderr.write(msg + '\n');
+    const categoryDir = getCategoryDir(ruleName);
+
+    const platform = ruleName === 'bilibili'
+        ? await import('./scraper-bilibili.js')
+        : await import('./scraper-youtube.js');
+
+    const videoId = platform.extractVideoId(url);
+    if (!videoId) throw new Error(`无法从 URL 中提取视频 ID: ${url}`);
+
+    const postDir = path.join(PROJECT_ROOT, 'work_dir', 'scrape', categoryDir, videoId);
+    const outputPath = path.join(postDir, 'data.json');
+    if (!existsSync(postDir)) await fs.mkdir(postDir, { recursive: true });
+
+    log(`[${ruleName}] 视频 ID: ${videoId}`);
+    log(`[${ruleName}] 获取视频信息 ...`);
+
+    const videoInfo = await platform.getVideoInfo(url, {
+        cookiesFromBrowser: 'firefox',
+    });
+
+    const extractedData = {
+        title: videoInfo.title || '',
+        description: videoInfo.description || '',
+        content: videoInfo.description || '',
+        cover_url: videoInfo.thumbnail || '',
+        source_url: videoInfo.webpage_url || videoInfo.original_url || url,
+        channel: videoInfo.channel || videoInfo.uploader || '',
+        channel_id: videoInfo.channel_id || videoInfo.uploader_id || '',
+        duration: videoInfo.duration,
+        duration_string: videoInfo.duration_string || '',
+        view_count: videoInfo.view_count,
+        like_count: videoInfo.like_count,
+        comment_count: videoInfo.comment_count,
+        tags: videoInfo.tags || [],
+    };
+
+    log(`[${ruleName}] 获取字幕 ...`);
+    try {
+        const defaultSubLangs = ruleName === 'bilibili'
+            ? 'zh-Hans,zh-Hant,ai-zh'
+            : 'zh-Hans,zh-Hant,en';
+        const subtitles = await platform.getSubtitles(url, videoId, {
+            subLangs: defaultSubLangs,
+            cookiesFromBrowser: 'firefox',
+        });
+        if (subtitles && Object.keys(subtitles).length > 0) {
+            extractedData.subtitles = subtitles;
+            log(`[${ruleName}] 获取到 ${Object.keys(subtitles).length} 种语言的字幕: ${Object.keys(subtitles).join(', ')}`);
+        } else {
+            log(`[${ruleName}] 未找到字幕`);
+        }
+    } catch (err) {
+        log(`[${ruleName}] 获取字幕失败: ${err.message}，继续流程`);
+    }
+
+    const result = { error: '0', data: extractedData };
+    await fs.writeFile(outputPath, JSON.stringify(result, null, 2), 'utf-8');
+    log(`抓取结果已保存: ${outputPath}`);
+
+    return { outputPath, result, category: categoryDir };
+}
+
 // ── 核心抓取函数 ────────────────────────────────────────────────────
 
 /**
@@ -144,6 +220,12 @@ function downloadFile(url, filePath) {
  * @returns {Promise<{outputPath: string, result: Object, category: string}>}
  */
 export async function scrape(url, options = {}) {
+    const ruleName = detectRuleName(url);
+
+    if (ruleName === 'bilibili' || ruleName === 'youtube') {
+        return await scrapeVideo(url, ruleName);
+    }
+
     const {
         useBrowser = false,
         useBrowserCookies = false,
@@ -152,7 +234,6 @@ export async function scrape(url, options = {}) {
         downloadVideos = false,
     } = options;
 
-    const ruleName = detectRuleName(url);
     const categoryDir = getCategoryDir(ruleName);
     const fileName = generateFileName(url);
     const baseName = path.basename(fileName, '.json');

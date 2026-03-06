@@ -1449,5 +1449,5 @@ if (isMain) {
     });
 }
 
-export { main, parseArgs, extractVideoId };
+export { main, parseArgs, extractVideoId, getVideoInfo, getSubtitles, checkYtDlp, getYtDlpCommand };
 

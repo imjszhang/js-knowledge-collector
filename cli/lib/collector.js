@@ -33,7 +33,7 @@ function convertUrl(url) {
 
 function shouldUseBrowser(url) {
     const ruleName = detectRuleName(url);
-    const httpOnlyRules = ['github'];
+    const httpOnlyRules = ['github', 'bilibili', 'youtube'];
     return !httpOnlyRules.includes(ruleName);
 }
 
