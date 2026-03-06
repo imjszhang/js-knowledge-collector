@@ -1,5 +1,6 @@
 import nodePath from "node:path";
 import nodeFs from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
@@ -634,6 +635,76 @@ export default function register(api) {
             console.log(`  URL: ${result.url}\n`);
           } catch (err) {
             console.error(`收集失败: ${err.message}`);
+          }
+        });
+      knowledge
+        .command("setup-collector")
+        .description("配置链接收集器的 cron 定时任务（定时批量入库队列中的链接）")
+        .option("--every <minutes>", "执行间隔（分钟）", "30")
+        .option("--tz <timezone>", "时区（IANA）", "Asia/Shanghai")
+        .option("--remove", "移除定时任务")
+        .action(async (opts) => {
+          const JOB_NAME = "link-collector-process";
+          const openclawBin = process.argv[0];
+          const openclawEntry = process.argv[1];
+
+          function runOcCron(args) {
+            return execFileSync(openclawBin, [openclawEntry, "cron", ...args], {
+              encoding: "utf-8",
+              timeout: 30_000,
+            }).trim();
+          }
+
+          try {
+            if (opts.remove) {
+              const listJson = runOcCron(["list", "--json"]);
+              const { jobs } = JSON.parse(listJson);
+              const existing = jobs.find((j) => j.name === JOB_NAME);
+              if (!existing) {
+                console.log(`\n  未找到名为 "${JOB_NAME}" 的定时任务，无需移除。\n`);
+                return;
+              }
+              runOcCron(["rm", existing.id]);
+              console.log(`\n  ✓ 已移除定时任务 "${JOB_NAME}" (${existing.id})\n`);
+              return;
+            }
+
+            const listJson = runOcCron(["list", "--json"]);
+            const { jobs } = JSON.parse(listJson);
+            const existing = jobs.find((j) => j.name === JOB_NAME);
+            if (existing) {
+              console.log(`\n  定时任务 "${JOB_NAME}" 已存在 (${existing.id})。`);
+              console.log(`  如需重新配置，请先执行: openclaw knowledge setup-collector --remove\n`);
+              return;
+            }
+
+            const minutes = parseInt(opts.every, 10);
+            if (isNaN(minutes) || minutes < 1) {
+              console.error("  错误: --every 必须为正整数（分钟）");
+              return;
+            }
+
+            const cronExpr = `*/${minutes} * * * *`;
+            const result = runOcCron([
+              "add",
+              "--name", JOB_NAME,
+              "--cron", cronExpr,
+              "--tz", opts.tz,
+              "--session", "isolated",
+              "--message", "执行 link-collector 技能的定时入库流程：检查并处理链接队列。",
+              "--thinking", "minimal",
+              "--json",
+            ]);
+
+            const job = JSON.parse(result);
+            console.log(`\n  ✓ 定时任务已创建`);
+            console.log(`    名称: ${job.name}`);
+            console.log(`    ID:   ${job.id}`);
+            console.log(`    调度: 每 ${minutes} 分钟`);
+            console.log(`    时区: ${opts.tz}\n`);
+          } catch (err) {
+            console.error(`  配置失败: ${err.message}`);
+            if (err.stderr) console.error(err.stderr);
           }
         });
     },

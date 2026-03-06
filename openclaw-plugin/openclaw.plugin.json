@@ -3,6 +3,7 @@
   "name": "JS Knowledge Collector",
   "description": "知识收集器 — 为 AI Agent 提供网页抓取、AI 总结、知识库管理能力。支持微信公众号、知乎、小红书、X.com 等主流平台。",
   "version": "1.0.0",
+  "skills": ["./skills"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
