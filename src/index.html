@@ -1,0 +1,999 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Collector - 知识库</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Space Grotesk', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            yellow: '#FCD228',
+                            black: '#000000',
+                            white: '#FFFFFF',
+                        }
+                    },
+                    boxShadow: {
+                        'brutal': '4px 4px 0px 0px #000000',
+                        'brutal-lg': '6px 6px 0px 0px #000000',
+                        'brutal-hover': '2px 2px 0px 0px #000000',
+                    },
+                    borderWidth: {
+                        '3': '3px',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #FCD228;
+            color: #000000;
+            background-image: 
+                linear-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 0, 0, 0.08) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 12px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #FCD228;
+            border-left: 3px solid black;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #000000;
+            border: 3px solid #FCD228;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #333;
+        }
+
+        .brutal-card {
+            background: #FFFFFF;
+            border: 3px solid #000000;
+            box-shadow: 6px 6px 0px 0px #000000;
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .brutal-card:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 4px 4px 0px 0px #000000;
+        }
+
+        .brutal-btn {
+            background: #FFFFFF;
+            border: 3px solid #000000;
+            box-shadow: 4px 4px 0px 0px #000000;
+            font-weight: 700;
+            transition: all 0.1s;
+        }
+
+        .brutal-btn:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px 0px #000000;
+        }
+
+        .brutal-btn:active {
+            transform: translate(4px, 4px);
+            box-shadow: 0px 0px 0px 0px #000000;
+        }
+
+        .brutal-btn-primary {
+            background: #000000;
+            color: #FCD228;
+            border: 3px solid #000000;
+            box-shadow: 4px 4px 0px 0px #FFFFFF;
+        }
+        
+        .brutal-btn-primary:hover {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px 0px #FFFFFF;
+        }
+
+        .platform-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 2px solid #000000;
+            background: #FCD228;
+        }
+
+        .article-cover {
+            width: 100%;
+            height: 160px;
+            object-fit: cover;
+            border-bottom: 3px solid #000000;
+        }
+
+        .article-cover-placeholder {
+            width: 100%;
+            height: 160px;
+            background: linear-gradient(135deg, #FCD228 25%, #000000 25%, #000000 50%, #FCD228 50%, #FCD228 75%, #000000 75%);
+            background-size: 20px 20px;
+            border-bottom: 3px solid #000000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-spinner {
+            border: 4px solid #FCD228;
+            border-top: 4px solid #000000;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .pagination-btn {
+            min-width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Search Input */
+        .brutal-input {
+            background: #FFFFFF;
+            border: 3px solid #000000;
+            box-shadow: 4px 4px 0px 0px #000000;
+            font-weight: 500;
+            outline: none;
+            transition: all 0.1s;
+        }
+
+        .brutal-input:focus {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px 0px #000000;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-content {
+            background: #FFFFFF;
+            border: 3px solid #000000;
+            box-shadow: 8px 8px 0px 0px #000000;
+            max-width: 600px;
+            width: 100%;
+            max-height: 80vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            transform: translateY(-20px);
+            transition: transform 0.2s ease;
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 3px solid #000000;
+            background: #FCD228;
+        }
+
+        .modal-tabs {
+            display: flex;
+            border-bottom: 3px solid #000000;
+        }
+
+        .modal-tab {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            text-align: center;
+            background: #FFFFFF;
+            border: none;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+
+        .modal-tab:not(:last-child) {
+            border-right: 3px solid #000000;
+        }
+
+        .modal-tab:hover {
+            background: #f0f0f0;
+        }
+
+        .modal-tab.active {
+            background: #000000;
+            color: #FCD228;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .modal-footer {
+            padding: 1rem 1.5rem;
+            border-top: 3px solid #000000;
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .clickable-card {
+            cursor: pointer;
+        }
+
+        /* Markdown Content Styles */
+        .markdown-content {
+            line-height: 1.7;
+        }
+        .markdown-content h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 2px solid #000;
+            padding-bottom: 0.25rem;
+        }
+        .markdown-content h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-top: 1.25rem;
+            margin-bottom: 0.5rem;
+        }
+        .markdown-content h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .markdown-content p {
+            margin-bottom: 0.75rem;
+        }
+        .markdown-content ul, .markdown-content ol {
+            margin-left: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .markdown-content ul {
+            list-style-type: disc;
+        }
+        .markdown-content ol {
+            list-style-type: decimal;
+        }
+        .markdown-content li {
+            margin-bottom: 0.25rem;
+        }
+        .markdown-content code {
+            background: #FCD228;
+            padding: 0.125rem 0.375rem;
+            border-radius: 0;
+            border: 1px solid #000;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+        }
+        .markdown-content pre {
+            background: #1a1a1a;
+            color: #FCD228;
+            padding: 1rem;
+            border: 3px solid #000;
+            overflow-x: auto;
+            margin-bottom: 0.75rem;
+        }
+        .markdown-content pre code {
+            background: transparent;
+            border: none;
+            padding: 0;
+            color: inherit;
+        }
+        .markdown-content blockquote {
+            border-left: 4px solid #000;
+            padding-left: 1rem;
+            margin-left: 0;
+            margin-bottom: 0.75rem;
+            background: #f5f5f5;
+            padding: 0.5rem 1rem;
+        }
+        .markdown-content a {
+            color: #0066FF;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+        .markdown-content a:hover {
+            background: #FCD228;
+        }
+        .markdown-content strong {
+            font-weight: 700;
+        }
+        .markdown-content em {
+            font-style: italic;
+        }
+        .markdown-content hr {
+            border: none;
+            border-top: 2px solid #000;
+            margin: 1rem 0;
+        }
+
+        /* Delete Button Styles */
+        .brutal-btn-danger {
+            background: #DC2626;
+            color: #FFFFFF;
+            border: 3px solid #000000;
+            box-shadow: 4px 4px 0px 0px #000000;
+        }
+        .brutal-btn-danger:hover {
+            background: #B91C1C;
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px 0px #000000;
+        }
+
+        /* Confirm Dialog Styles */
+        .confirm-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+        .confirm-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .confirm-dialog {
+            background: #FFFFFF;
+            border: 3px solid #000000;
+            box-shadow: 8px 8px 0px 0px #000000;
+            max-width: 400px;
+            width: 100%;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        .confirm-dialog h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        .confirm-dialog p {
+            margin-bottom: 1.5rem;
+            color: #666;
+        }
+        .confirm-dialog .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body class="min-h-screen font-sans selection:bg-black selection:text-brand-yellow">
+    
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 p-4">
+        <div class="max-w-7xl mx-auto bg-white border-3 border-black shadow-brutal flex justify-between items-center px-6 py-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] bg-brand-yellow border-2 border-black flex items-center justify-center">
+                    <span class="font-bold text-lg">JS</span>
+                </div>
+                <span class="text-xl font-bold tracking-tight uppercase">Knowledge</span>
+            </div>
+            <div class="hidden md:flex items-center gap-4">
+                <span id="articleCount" class="font-mono text-sm bg-black text-brand-yellow px-3 py-1">0 篇文章</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-28 pb-24 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+        
+        <!-- Header -->
+        <section class="mb-8">
+            <div class="bg-black text-brand-yellow inline-block px-4 py-1 border-2 border-black font-mono font-bold text-sm mb-4 shadow-[4px_4px_0px_0px_#FFFFFF] transform -rotate-1">
+                ARTICLE EXPLORER
+            </div>
+            <h1 class="text-4xl md:text-5xl font-black tracking-tight mb-4 leading-none uppercase">
+                知识库
+            </h1>
+            <p class="text-lg font-bold max-w-2xl border-l-4 border-black pl-4 bg-white/50 backdrop-blur-sm p-3">
+                浏览和探索收藏的优质文章与知识
+            </p>
+        </section>
+
+        <!-- Filter Bar -->
+        <section class="mb-8">
+            <div class="brutal-card p-4 flex flex-wrap gap-4 items-center">
+                <span class="font-bold uppercase text-sm">筛选平台:</span>
+                <div class="flex flex-wrap gap-2">
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn active" data-source="">全部</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="wechat">微信</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="zhihu">知乎</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="xiaohongshu">小红书</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="jike">即刻</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="x_com">X.com</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="reddit">Reddit</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="bilibili">Bilibili</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="youtube">YouTube</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="github">GitHub</button>
+                    <button class="brutal-btn px-4 py-2 text-sm uppercase filter-btn" data-source="other">其它</button>
+                </div>
+                <div class="flex items-center gap-2 ml-auto">
+                    <input type="text" id="searchInput" placeholder="搜索标题/摘要..." 
+                           class="brutal-input px-4 py-2 text-sm w-48">
+                    <button id="searchBtn" class="brutal-btn px-4 py-2 text-sm uppercase">搜索</button>
+                    <button id="clearSearchBtn" class="brutal-btn px-3 py-2 text-sm hidden">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading State -->
+        <div id="loadingState" class="flex flex-col items-center justify-center py-20">
+            <div class="loading-spinner mb-4"></div>
+            <p class="font-bold text-lg">正在加载文章...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="hidden flex flex-col items-center justify-center py-20 brutal-card">
+            <div class="text-6xl mb-4">📭</div>
+            <p class="font-bold text-xl mb-2">暂无文章</p>
+            <p class="text-gray-600">没有找到符合条件的文章</p>
+        </div>
+
+        <!-- Article Grid -->
+        <div id="articleGrid" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+            <!-- Articles will be inserted here -->
+        </div>
+
+        <!-- Pagination -->
+        <div id="pagination" class="hidden flex justify-center items-center gap-2">
+            <button id="prevBtn" class="brutal-btn pagination-btn" disabled>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M15 19l-7-7 7-7"></path>
+                </svg>
+            </button>
+            <div id="pageNumbers" class="flex gap-2">
+                <!-- Page numbers will be inserted here -->
+            </div>
+            <button id="nextBtn" class="brutal-btn pagination-btn">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M9 5l7 7-7 7"></path>
+                </svg>
+            </button>
+        </div>
+
+    </main>
+
+    <!-- Article Modal -->
+    <div id="articleModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle" class="font-bold text-xl leading-tight line-clamp-2">文章标题</h2>
+                <div class="flex items-center gap-2 mt-2">
+                    <span id="modalPlatform" class="platform-badge">平台</span>
+                    <span id="modalDate" class="text-xs font-mono opacity-70">日期</span>
+                </div>
+            </div>
+            <div class="modal-tabs">
+                <button class="modal-tab active" data-tab="summary">摘要</button>
+                <button class="modal-tab" data-tab="ai-analysis">AI分析</button>
+            </div>
+            <div class="modal-body">
+                <div id="tabSummary" class="tab-content active">
+                    <div id="modalSummary" class="markdown-content">暂无摘要</div>
+                </div>
+                <div id="tabAiAnalysis" class="tab-content">
+                    <div class="mb-6">
+                        <h3 class="font-bold text-sm uppercase mb-2 text-gray-500">详细摘要</h3>
+                        <div id="modalDigest" class="markdown-content">暂无详细摘要</div>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-sm uppercase mb-2 text-gray-500">推荐理由</h3>
+                        <div id="modalRecommend" class="markdown-content">暂无推荐理由</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modalDeleteBtn" class="brutal-btn-danger px-4 py-2 text-sm uppercase">删除</button>
+                <button id="modalCloseBtn" class="brutal-btn px-4 py-2 text-sm uppercase">关闭</button>
+                <a id="modalReadBtn" href="#" target="_blank" rel="noopener noreferrer" 
+                   class="brutal-btn-primary px-4 py-2 text-sm uppercase text-center">
+                    阅读原文
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirm Dialog -->
+    <div id="confirmDialog" class="confirm-overlay">
+        <div class="confirm-dialog">
+            <h3>确认删除</h3>
+            <p id="confirmMessage">确定要删除这篇文章吗？此操作不可撤销。</p>
+            <div class="btn-group">
+                <button id="confirmCancelBtn" class="brutal-btn px-4 py-2 text-sm uppercase">取消</button>
+                <button id="confirmDeleteBtn" class="brutal-btn-danger px-4 py-2 text-sm uppercase">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-black text-white py-8 border-t-8 border-brand-yellow">
+        <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="font-mono font-bold text-lg tracking-tighter">
+                JS_KNOWLEDGE <span class="text-brand-yellow">EXPLORER</span>
+            </div>
+            <div class="text-sm opacity-70">
+                Powered by Neo-Brutalism Design
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // State
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentSource = '';
+        let currentKeyword = '';
+        const perPage = 12;
+
+        // DOM Elements
+        const articleGrid = document.getElementById('articleGrid');
+        const loadingState = document.getElementById('loadingState');
+        const emptyState = document.getElementById('emptyState');
+        const pagination = document.getElementById('pagination');
+        const articleCount = document.getElementById('articleCount');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const pageNumbers = document.getElementById('pageNumbers');
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const clearSearchBtn = document.getElementById('clearSearchBtn');
+        
+        // Modal Elements
+        const articleModal = document.getElementById('articleModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalPlatform = document.getElementById('modalPlatform');
+        const modalDate = document.getElementById('modalDate');
+        const modalSummary = document.getElementById('modalSummary');
+        const modalDigest = document.getElementById('modalDigest');
+        const modalRecommend = document.getElementById('modalRecommend');
+        const modalReadBtn = document.getElementById('modalReadBtn');
+        const modalCloseBtn = document.getElementById('modalCloseBtn');
+        const modalTabs = document.querySelectorAll('.modal-tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        // Platform detection
+        function detectPlatform(sourceUrl) {
+            if (!sourceUrl) return { name: '未知', color: '#999' };
+            
+            if (sourceUrl.includes('mp.weixin.qq.com')) {
+                return { name: '微信', color: '#07C160' };
+            } else if (sourceUrl.includes('zhuanlan.zhihu.com')) {
+                return { name: '知乎专栏', color: '#0066FF' };
+            } else if (sourceUrl.includes('zhihu.com/question')) {
+                return { name: '知乎回答', color: '#0066FF' };
+            } else if (sourceUrl.includes('zhihu.com')) {
+                return { name: '知乎', color: '#0066FF' };
+            } else if (sourceUrl.includes('xiaohongshu.com')) {
+                return { name: '小红书', color: '#FE2C55' };
+            } else if (sourceUrl.includes('okjike.com')) {
+                return { name: '即刻', color: '#FFE411' };
+            } else if (sourceUrl.includes('x.com') || sourceUrl.includes('twitter.com')) {
+                return { name: 'X.com', color: '#1DA1F2' };
+            } else if (sourceUrl.includes('reddit.com')) {
+                return { name: 'Reddit', color: '#FF4500' };
+            } else if (sourceUrl.includes('bilibili.com') || sourceUrl.includes('b23.tv')) {
+                return { name: 'Bilibili', color: '#00A1D6' };
+            } else if (sourceUrl.includes('youtube.com') || sourceUrl.includes('youtu.be')) {
+                return { name: 'YouTube', color: '#FF0000' };
+            } else if (sourceUrl.includes('github.com')) {
+                return { name: 'GitHub', color: '#24292F' };
+            } else {
+                try {
+                    const url = new URL(sourceUrl);
+                    return { name: url.hostname, color: '#666' };
+                } catch {
+                    return { name: '网页', color: '#666' };
+                }
+            }
+        }
+
+        // Format date
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        // Truncate text
+        function truncateText(text, maxLength) {
+            if (!text) return '';
+            if (text.length <= maxLength) return text;
+            return text.slice(0, maxLength) + '...';
+        }
+
+        // Create article card
+        function createArticleCard(article) {
+            const platform = detectPlatform(article.source_url);
+            const card = document.createElement('div');
+            card.className = 'brutal-card overflow-hidden flex flex-col clickable-card';
+            
+            card.innerHTML = `
+                ${article.cover_url 
+                    ? `<img src="${article.cover_url}" alt="${article.title}" class="article-cover" onerror="this.outerHTML='<div class=\\'article-cover-placeholder\\'><span class=\\'font-mono font-bold text-white text-2xl\\'>JS</span></div>'">` 
+                    : `<div class="article-cover-placeholder"><span class="font-mono font-bold text-white text-2xl">JS</span></div>`
+                }
+                <div class="p-4 flex flex-col flex-grow">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="platform-badge" style="background-color: ${platform.color}; color: white; border-color: ${platform.color};">
+                            ${platform.name}
+                        </span>
+                        <span class="text-xs font-mono opacity-70">${formatDate(article.created)}</span>
+                    </div>
+                    <h3 class="font-bold text-lg mb-2 leading-tight line-clamp-2">${article.title || '无标题'}</h3>
+                    <p class="text-sm opacity-70 mb-4 flex-grow line-clamp-3">${truncateText(article.summary, 100) || '暂无摘要'}</p>
+                    <a href="${article.source_url}" target="_blank" rel="noopener noreferrer" 
+                       class="brutal-btn-primary px-4 py-2 text-sm uppercase text-center block card-read-btn"
+                       onclick="event.stopPropagation()">
+                        阅读原文
+                    </a>
+                </div>
+            `;
+            
+            // Click card to open modal
+            card.addEventListener('click', () => {
+                openModal(article);
+            });
+            
+            return card;
+        }
+
+        // Modal functions
+        let currentArticle = null; // Store current article for delete operation
+        
+        function openModal(article) {
+            currentArticle = article; // Save reference for delete
+            const platform = detectPlatform(article.source_url);
+            
+            modalTitle.textContent = article.title || '无标题';
+            modalPlatform.textContent = platform.name;
+            modalPlatform.style.backgroundColor = platform.color;
+            modalPlatform.style.borderColor = platform.color;
+            modalPlatform.style.color = 'white';
+            modalDate.textContent = formatDate(article.created);
+            
+            // Use marked.parse() to render Markdown content
+            modalSummary.innerHTML = marked.parse(article.summary || '暂无摘要');
+            modalDigest.innerHTML = marked.parse(article.digest || '暂无详细摘要');
+            modalRecommend.innerHTML = marked.parse(article.recommend || '暂无推荐理由');
+            modalReadBtn.href = article.source_url;
+            
+            // Reset to first tab
+            switchTab('summary');
+            
+            // Show modal
+            articleModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal() {
+            articleModal.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+
+        function switchTab(tabName) {
+            modalTabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === tabName);
+            });
+            
+            document.getElementById('tabSummary').classList.toggle('active', tabName === 'summary');
+            document.getElementById('tabAiAnalysis').classList.toggle('active', tabName === 'ai-analysis');
+        }
+
+        // Fetch articles
+        async function fetchArticles(page = 1, source = '', keyword = '') {
+            try {
+                showLoading();
+                
+                const params = new URLSearchParams({
+                    page: page.toString(),
+                    perPage: perPage.toString()
+                });
+                
+                if (source) {
+                    params.append('source', source);
+                }
+                
+                if (keyword) {
+                    params.append('keyword', keyword);
+                }
+                
+                const response = await fetch(`api/v1/articles.json?${params}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    currentPage = data.page;
+                    totalPages = data.totalPages;
+                    
+                    articleCount.textContent = `${data.totalItems} 篇文章`;
+                    
+                    if (data.data && data.data.length > 0) {
+                        renderArticles(data.data);
+                        renderPagination();
+                        showArticles();
+                    } else {
+                        showEmpty();
+                    }
+                } else {
+                    console.error('Failed to fetch articles:', data.message);
+                    showEmpty();
+                }
+            } catch (error) {
+                console.error('Error fetching articles:', error);
+                showEmpty();
+            }
+        }
+
+        // Render articles
+        function renderArticles(articles) {
+            articleGrid.innerHTML = '';
+            articles.forEach(article => {
+                articleGrid.appendChild(createArticleCard(article));
+            });
+        }
+
+        // Render pagination
+        function renderPagination() {
+            pageNumbers.innerHTML = '';
+            
+            const maxVisiblePages = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+            
+            if (endPage - startPage + 1 < maxVisiblePages) {
+                startPage = Math.max(1, endPage - maxVisiblePages + 1);
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                const btn = document.createElement('button');
+                btn.className = `brutal-btn pagination-btn ${i === currentPage ? 'brutal-btn-primary' : ''}`;
+                btn.textContent = i;
+                btn.addEventListener('click', () => {
+                    if (i !== currentPage) {
+                        fetchArticles(i, currentSource, currentKeyword);
+                    }
+                });
+                pageNumbers.appendChild(btn);
+            }
+            
+            prevBtn.disabled = currentPage <= 1;
+            nextBtn.disabled = currentPage >= totalPages;
+            
+            prevBtn.classList.toggle('opacity-50', currentPage <= 1);
+            nextBtn.classList.toggle('opacity-50', currentPage >= totalPages);
+        }
+
+        // UI State functions
+        function showLoading() {
+            loadingState.classList.remove('hidden');
+            articleGrid.classList.add('hidden');
+            emptyState.classList.add('hidden');
+            pagination.classList.add('hidden');
+        }
+
+        function showArticles() {
+            loadingState.classList.add('hidden');
+            articleGrid.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            pagination.classList.remove('hidden');
+        }
+
+        function showEmpty() {
+            loadingState.classList.add('hidden');
+            articleGrid.classList.add('hidden');
+            emptyState.classList.remove('hidden');
+            pagination.classList.add('hidden');
+        }
+
+        // Event Listeners
+        filterBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                filterBtns.forEach(b => b.classList.remove('brutal-btn-primary'));
+                btn.classList.add('brutal-btn-primary');
+                currentSource = btn.dataset.source;
+                fetchArticles(1, currentSource, currentKeyword);
+            });
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                fetchArticles(currentPage - 1, currentSource, currentKeyword);
+            }
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                fetchArticles(currentPage + 1, currentSource, currentKeyword);
+            }
+        });
+
+        // Search functionality
+        function performSearch() {
+            const keyword = searchInput.value.trim();
+            currentKeyword = keyword;
+            
+            if (keyword) {
+                clearSearchBtn.classList.remove('hidden');
+            } else {
+                clearSearchBtn.classList.add('hidden');
+            }
+            
+            fetchArticles(1, currentSource, currentKeyword);
+        }
+
+        searchBtn.addEventListener('click', performSearch);
+
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        clearSearchBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            currentKeyword = '';
+            clearSearchBtn.classList.add('hidden');
+            fetchArticles(1, currentSource, '');
+        });
+
+        // Delete functionality elements
+        const modalDeleteBtn = document.getElementById('modalDeleteBtn');
+        const confirmDialog = document.getElementById('confirmDialog');
+        const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+        const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+        const confirmMessage = document.getElementById('confirmMessage');
+
+        // Show confirm dialog
+        function showConfirmDialog() {
+            if (currentArticle) {
+                const title = currentArticle.title || '无标题';
+                confirmMessage.textContent = `确定要删除「${title.length > 20 ? title.slice(0, 20) + '...' : title}」吗？此操作不可撤销。`;
+            }
+            confirmDialog.classList.add('active');
+        }
+
+        // Hide confirm dialog
+        function hideConfirmDialog() {
+            confirmDialog.classList.remove('active');
+        }
+
+        // Delete article
+        async function deleteArticle() {
+            if (!currentArticle || !currentArticle.id) {
+                console.error('No article selected for deletion');
+                return;
+            }
+
+            try {
+                const response = await fetch(`api/v1/articles/${currentArticle.id}.json`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    hideConfirmDialog();
+                    closeModal();
+                    // Refresh article list
+                    fetchArticles(currentPage, currentSource, currentKeyword);
+                } else {
+                    alert('删除失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                console.error('Error deleting article:', error);
+                alert('删除失败: ' + error.message);
+            }
+        }
+
+        // Modal event listeners
+        modalCloseBtn.addEventListener('click', closeModal);
+        modalDeleteBtn.addEventListener('click', showConfirmDialog);
+
+        articleModal.addEventListener('click', (e) => {
+            if (e.target === articleModal) {
+                closeModal();
+            }
+        });
+
+        modalTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                switchTab(tab.dataset.tab);
+            });
+        });
+
+        // Confirm dialog event listeners
+        confirmCancelBtn.addEventListener('click', hideConfirmDialog);
+        confirmDeleteBtn.addEventListener('click', deleteArticle);
+        
+        confirmDialog.addEventListener('click', (e) => {
+            if (e.target === confirmDialog) {
+                hideConfirmDialog();
+            }
+        });
+
+        // ESC key to close modal or confirm dialog
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (confirmDialog.classList.contains('active')) {
+                    hideConfirmDialog();
+                } else if (articleModal.classList.contains('active')) {
+                    closeModal();
+                }
+            }
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchArticles(1);
+        });
+    </script>
+</body>
+</html>

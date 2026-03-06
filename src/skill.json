@@ -1,0 +1,55 @@
+{
+  "name": "js-knowledge-collector",
+  "version": "1.0.0",
+  "description": "知识收集器 — 从 URL 到知识库的全链路工具",
+  "capabilities": [
+    {
+      "name": "collect",
+      "description": "从 URL 抓取网页内容，AI 生成摘要，存入知识库",
+      "parameters": {
+        "url": "目标网页 URL",
+        "flomo": "是否同时发送到 Flomo (可选)",
+        "no-summary": "仅抓取不总结 (可选)"
+      }
+    },
+    {
+      "name": "search",
+      "description": "搜索知识库中的文章",
+      "parameters": {
+        "keyword": "搜索关键词",
+        "source": "按平台筛选 (可选)"
+      }
+    },
+    {
+      "name": "list",
+      "description": "列出知识库中的文章",
+      "parameters": {
+        "source": "按平台筛选 (可选)",
+        "page": "页码 (可选)",
+        "per-page": "每页数量 (可选)"
+      }
+    },
+    {
+      "name": "stats",
+      "description": "显示知识库统计信息"
+    },
+    {
+      "name": "export",
+      "description": "导出文章",
+      "parameters": {
+        "format": "导出格式: prism|json|md (默认 json)"
+      }
+    },
+    {
+      "name": "delete",
+      "description": "删除指定文章",
+      "parameters": {
+        "id": "文章 ID"
+      }
+    }
+  ],
+  "supportedSources": [
+    "wechat", "xiaohongshu", "zhihu", "jike",
+    "x_com", "reddit", "bilibili", "youtube", "github", "general"
+  ]
+}

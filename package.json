@@ -1,0 +1,24 @@
+{
+  "name": "js-knowledge-collector",
+  "version": "1.0.0",
+  "description": "知识收集器 — 从 URL 到知识库的全链路工具。抓取、总结、入库、导出，一站式管理。",
+  "author": "imjszhang",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "dev": "npx serve src",
+    "build": "node build/build.js",
+    "preview": "npx serve docs -l 3000",
+    "cli": "node cli/cli.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "dotenv": "^16.4.7",
+    "openai": "^6.26.0",
+    "sqlite3": "^5.1.7",
+    "ws": "^8.18.1"
+  }
+}
