@@ -9,7 +9,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "npx serve src",
+    "dev": "node cli/cli.js serve",
     "build": "node build/build.js",
     "preview": "npx serve docs -l 3000",
     "cli": "node cli/cli.js"

@@ -111,6 +111,11 @@ async function cmdBuild(flags) {
     toJson(result);
 }
 
+async function cmdServe(flags) {
+    const { startServer } = await import('./lib/server.js');
+    await startServer({ port: flags.port || 3000 });
+}
+
 function cmdCommit(flags) {
     try {
         const status = gitStatus();
@@ -229,6 +234,7 @@ async function main() {
         case 'delete':      await cmdDelete(positional);         break;
         case 'export':      await cmdExport(flags);              break;
         case 'build':       await cmdBuild(flags);               break;
+        case 'serve':       await cmdServe(flags);               break;
         case 'commit':      cmdCommit(flags);                    break;
         case 'sync':        cmdSync(flags);                      break;
         case 'help': case '--help': case '-h':
