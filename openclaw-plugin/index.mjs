@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 import nodeFs from "node:fs";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 
 const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = nodePath.resolve(__dirname, "..");
@@ -72,11 +73,15 @@ async function getDb() {
 }
 
 export default function register(api) {
+  // Load project-local .env first (override: false → won't clobber existing env vars)
+  dotenv.config({ path: nodePath.join(PROJECT_ROOT, ".env"), override: false });
+
   const pluginCfg = api.pluginConfig ?? {};
 
   const serverPort = pluginCfg.serverPort || 3000;
   const autoStart = pluginCfg.autoStartServer ?? false;
 
+  // openclaw.json pluginConfig values take precedence over .env
   applyEnv(pluginCfg);
 
   let serverInstance = null;
