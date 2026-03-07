@@ -365,14 +365,22 @@ class BrowserAutomation {
     let tabId = null;
     let isReused = false;
 
+    // 即刻移动版 URL 转换为 PC 版（浏览器模式需要）
+    let finalUrl = url;
+    const jikeMobileMatch = url.match(/https:\/\/m\.okjike\.com\/originalPosts\/([\w]+)/);
+    if (jikeMobileMatch) {
+      finalUrl = `https://web.okjike.com/originalPost/${jikeMobileMatch[1]}`;
+      this.logger.info(`即刻移动 URL 转换为 PC 版：${finalUrl}`);
+    }
+
     try {
       // 1. 打开或复用标签页
       if (reuseTab) {
-        const tabResult = await this.openOrReuseTab(url, { requireComplete: false });
+        const tabResult = await this.openOrReuseTab(finalUrl, { requireComplete: false });
         tabId = tabResult.tabId;
         isReused = tabResult.isReused;
       } else {
-        tabId = await this.openUrl(url);
+        tabId = await this.openUrl(finalUrl);
         isReused = false;
       }
 
@@ -398,7 +406,7 @@ class BrowserAutomation {
       // 4. 前置钩子
       if (beforeGetHtml && typeof beforeGetHtml === 'function') {
         this.logger.info('执行前置钩子...');
-        await beforeGetHtml(tabId, url);
+        await beforeGetHtml(tabId, finalUrl);
       }
 
       // 5. 获取 HTML
