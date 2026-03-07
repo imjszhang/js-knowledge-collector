@@ -26,10 +26,19 @@ author: js-knowledge-collector
 <workspace>/
 └── .openclaw/
     └── link-collector/
+        ├── config.json          # 技能配置（defaultFlomo 等）
         ├── inbox.jsonl          # 收集队列（append-only）
         ├── batch-*.jsonl        # 处理中的批次（临时，cron 会话产生）
         └── archive/             # 已处理批次归档
 ```
+
+### config.json
+
+可选配置文件，用于设置入库时的默认行为。不存在时所有选项取默认值。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `defaultFlomo` | boolean | `false` | 入库时是否默认同步推送到 Flomo |
 
 所有数据路径均相对于 workspace 根目录。首次使用时如果 `.openclaw/link-collector/` 目录或 `inbox.jsonl` 不存在，应自动创建。
 
@@ -74,9 +83,10 @@ openclaw knowledge setup-collector
 当用户明确要求立即入库时（如"这条马上收藏"、"立刻入库"、"现在就收"）：
 
 1. 按收集流程执行排重（队列 + 知识库）。
-2. 对新链接直接调用 `knowledge_collect` 工具：
-   - **参数**：`url`（必填），其余使用默认值。
-3. 结果处理：
+2. 读取 `.openclaw/link-collector/config.json`（不存在则视为空配置）。
+3. 对新链接直接调用 `knowledge_collect` 工具：
+   - **参数**：`url`（必填）；若 config 中 `defaultFlomo` 为 `true`，额外传递 `flomo: true`。
+4. 结果处理：
    - **成功** → 告知用户已入库，不写入队列。
    - **失败** → 告知用户入库失败，将链接写入 `.openclaw/link-collector/inbox.jsonl` 作为兜底，等待 cron 重试。
 
@@ -162,12 +172,14 @@ rename 是原子操作，轮转后新链接写入新的 inbox，与 batch 处理
 
 ### 步骤 2：串行处理
 
+先读取 `.openclaw/link-collector/config.json`（不存在则视为空配置），获取 `defaultFlomo` 等默认参数。
+
 逐行读取 batch 文件，对每条记录：
 
 1. **跳过非待处理项**：status 不是 `pending` 和 `failed` 的直接跳过。
 2. **知识库排重**：调用 `knowledge_search` 按 URL 查询。
    - 已入库 → 将 status 更新为 `skipped`，继续下一条。
-3. **入库**：调用 `knowledge_collect` 工具，参数 `url` 为链接地址。
+3. **入库**：调用 `knowledge_collect` 工具，参数 `url` 为链接地址；若 config 中 `defaultFlomo` 为 `true`，额外传递 `flomo: true`。
 4. **结果处理**：
    - 成功 → status 更新为 `done`，记录 `processed_at`。
    - 失败且 `retries < 3` → 将该条目追加回 `.openclaw/link-collector/inbox.jsonl`（retries + 1，记录 last_error），等待下次 cron 重试。
