@@ -20,6 +20,7 @@
 | `tags` | string[] | 是 | 标签数组，可为空数组 `[]` |
 | `auto_tags` | boolean | 是 | 标签是否由 AI 自动推断（`true`=自动，`false`=用户指定） |
 | `note` | string | 是 | 用户附加备注，无备注时为空字符串 `""` |
+| `priority` | boolean | 否 | 用户要求「立刻入库」时设为 `true`，cron 优先处理。默认 `false`，省略时视为 `false` |
 | `last_error` | string\|null | 是 | 最近一次失败的错误信息，无错误时为 `null` |
 | `processed_at` | string\|null | 是 | 处理完成时间（ISO 8601），未处理时为 `null` |
 

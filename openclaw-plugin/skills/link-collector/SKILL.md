@@ -9,14 +9,24 @@ author: js-knowledge-collector
 
 收集用户在对话中发送的链接，排重后写入队列文件，由 cron 定时批量调用 `knowledge_collect` 入库到知识库。
 
+## ⚠️ 核心约束：禁止在主会话中调用 knowledge_collect
+
+`knowledge_collect` 工具会调用 LLM 进行内容总结，单次调用可能耗时数十秒甚至数分钟。主会话的 session lane 是串行的，调用期间该会话的所有后续消息都会排队等待，导致机器人长时间无响应。
+
+**规则**：
+
+- 收到链接时，**只做入队**（写入 `inbox.jsonl`），**绝对不要**调用 `knowledge_collect`
+- 即使用户说「立刻入库」「马上收藏」，也**只做入队并标记优先**，由 cron 隔离会话处理
+- `knowledge_collect` **只允许**在 cron 隔离会话（`sessionTarget: "isolated"`）中调用
+
 ## 触发条件
 
 | 场景 | 行为 |
 |------|------|
-| 用户消息中包含 URL | 自动触发 **收集流程** |
-| 用户说"立刻入库"/"马上收藏"/"现在就收"等 | 走 **即时入库** 通道 |
+| 用户消息中包含 URL | 自动触发 **收集流程**（仅入队，不调用 knowledge_collect） |
+| 用户说"立刻入库"/"马上收藏"/"现在就收"等 | 走 **优先入队** 流程（入队 + 标记 `priority: true`，cron 优先处理） |
 | 用户要求查看/修改/删除/清空队列 | 走 **队列管理** 流程 |
-| cron 隔离会话触发 | 走 **定时入库** 流程 |
+| cron 隔离会话触发 | 走 **定时入库** 流程（唯一允许调用 knowledge_collect 的地方） |
 
 ## 文件布局
 
@@ -73,22 +83,21 @@ openclaw knowledge setup-collector
 每条链接一行 JSON，直接追加到文件末尾：
 
 ```json
-{"url":"https://example.com/article","added_at":"2026-03-06T10:00:00+08:00","status":"pending","retries":0,"tags":["ai"],"auto_tags":true,"note":"","last_error":null,"processed_at":null}
+{"url":"https://example.com/article","added_at":"2026-03-06T10:00:00+08:00","status":"pending","retries":0,"tags":["ai"],"auto_tags":true,"note":"","priority":false,"last_error":null,"processed_at":null}
 ```
 
 ---
 
-## 2. 即时入库（主会话）
+## 2. 优先入队（主会话）
 
 当用户明确要求立即入库时（如"这条马上收藏"、"立刻入库"、"现在就收"）：
 
+> **注意**：即使用户要求"立刻入库"，也**不要**在主会话中调用 `knowledge_collect`。
+> 主会话中调用 `knowledge_collect` 会阻塞 session lane 数分钟，导致机器人无响应。
+
 1. 按收集流程执行排重（队列 + 知识库）。
-2. 读取 `.openclaw/link-collector/config.json`（不存在则视为空配置）。
-3. 对新链接直接调用 `knowledge_collect` 工具：
-   - **参数**：`url`（必填）；若 config 中 `defaultFlomo` 为 `true`，额外传递 `flomo: true`。
-4. 结果处理：
-   - **成功** → 告知用户已入库，不写入队列。
-   - **失败** → 告知用户入库失败，将链接写入 `.openclaw/link-collector/inbox.jsonl` 作为兜底，等待 cron 重试。
+2. 将新链接写入 `.openclaw/link-collector/inbox.jsonl`，额外设置 `"priority": true`。
+3. 告知用户：「已加入优先队列，cron 下次执行时将优先处理」。
 
 ---
 
@@ -174,7 +183,7 @@ rename 是原子操作，轮转后新链接写入新的 inbox，与 batch 处理
 
 先读取 `.openclaw/link-collector/config.json`（不存在则视为空配置），获取 `defaultFlomo` 等默认参数。
 
-逐行读取 batch 文件，对每条记录：
+逐行读取 batch 文件，**优先处理 `priority: true` 的条目**（先按 priority 降序排列，再按原始顺序），对每条记录：
 
 1. **跳过非待处理项**：status 不是 `pending` 和 `failed` 的直接跳过。
 2. **知识库排重**：调用 `knowledge_search` 按 URL 查询。
