@@ -82,10 +82,30 @@ export default function register(api) {
   const serverPort = pluginCfg.serverPort || 3000;
   const autoStart = pluginCfg.autoStartServer ?? false;
 
+  const memorySyncEnabled = pluginCfg.memorySyncEnabled ?? true;
+  const memorySyncDir = pluginCfg.memorySyncDir
+    ? nodePath.resolve(pluginCfg.memorySyncDir)
+    : nodePath.join(PROJECT_ROOT, "work_dir", "memory-export");
+  const memorySyncIntervalMinutes = pluginCfg.memorySyncIntervalMinutes ?? 10;
+
   // openclaw.json pluginConfig values take precedence over .env
   applyEnv(pluginCfg);
 
   let serverInstance = null;
+
+  /**
+   * Fire-and-forget incremental memory sync.
+   * Shared by the background service, tool hooks, and CLI.
+   */
+  async function runMemorySync({ force = false, logger } = {}) {
+    try {
+      const { syncToMemory } = await import("../cli/lib/memory-sync.js");
+      return await syncToMemory({ dbPath: resolveDbPath(), outputDir: memorySyncDir, force });
+    } catch (err) {
+      if (logger) logger.error(`[knowledge] memory sync failed: ${err.message}`);
+      return null;
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Service: knowledge-collector-server (standalone, optional)
@@ -115,6 +135,44 @@ export default function register(api) {
         serverInstance = null;
       }
       ctx.logger.info("[knowledge] Service stopped");
+    },
+  });
+
+  // ---------------------------------------------------------------------------
+  // Service: knowledge-memory-sync (background, enabled by default)
+  // ---------------------------------------------------------------------------
+
+  let memorySyncTimer = null;
+
+  api.registerService({
+    id: "knowledge-memory-sync",
+    async start(ctx) {
+      if (!memorySyncEnabled) {
+        ctx.logger.info("[knowledge] memorySyncEnabled=false, skipping memory sync service");
+        return;
+      }
+
+      ctx.logger.info(`[knowledge] Memory sync starting (dir=${memorySyncDir}, interval=${memorySyncIntervalMinutes}m)`);
+      const result = await runMemorySync({ logger: ctx.logger });
+      if (result) {
+        ctx.logger.info(`[knowledge] Initial sync done: ${result.synced} synced, ${result.deleted} deleted, ${result.total} total`);
+      }
+
+      if (memorySyncIntervalMinutes > 0) {
+        memorySyncTimer = setInterval(async () => {
+          const r = await runMemorySync({ logger: ctx.logger });
+          if (r && (r.synced > 0 || r.deleted > 0)) {
+            ctx.logger.info(`[knowledge] Periodic sync: ${r.synced} synced, ${r.deleted} deleted`);
+          }
+        }, memorySyncIntervalMinutes * 60_000);
+      }
+    },
+    async stop(ctx) {
+      if (memorySyncTimer) {
+        clearInterval(memorySyncTimer);
+        memorySyncTimer = null;
+      }
+      ctx.logger.info("[knowledge] Memory sync service stopped");
     },
   });
 
@@ -309,6 +367,8 @@ export default function register(api) {
             forceSummary: params.forceSummary ?? false,
           });
 
+          if (memorySyncEnabled) runMemorySync();
+
           const lines = [
             `✓ 收集成功`,
             `  标题: ${result.title || "(无标题)"}`,
@@ -498,6 +558,9 @@ export default function register(api) {
         try {
           const { deleteArticle } = await import("../cli/lib/data-reader.js");
           const result = await deleteArticle(params.id);
+
+          if (memorySyncEnabled) runMemorySync();
+
           return textResult(`✓ 已删除文章 ${params.id}`);
         } catch (err) {
           return textResult(`删除失败: ${err.message}`);
@@ -637,6 +700,33 @@ export default function register(api) {
             console.error(`收集失败: ${err.message}`);
           }
         });
+      knowledge
+        .command("sync")
+        .description("将知识库摘要同步到 Markdown（供 memory_search 检索）")
+        .option("--force", "全量重新导出（忽略增量状态）")
+        .option("--dir <path>", "自定义导出目录")
+        .action(async (opts) => {
+          try {
+            const { syncToMemory } = await import("../cli/lib/memory-sync.js");
+            const outputDir = opts.dir
+              ? nodePath.resolve(opts.dir)
+              : memorySyncDir;
+            const result = await syncToMemory({
+              dbPath: resolveDbPath(),
+              outputDir,
+              force: !!opts.force,
+            });
+            console.log(`\n=== 记忆同步完成 ===`);
+            console.log(`  同步: ${result.synced} 篇`);
+            console.log(`  清理: ${result.deleted} 篇`);
+            console.log(`  总计: ${result.total} 篇`);
+            console.log(`  目录: ${outputDir}`);
+            console.log(`\n提示: 请确保 openclaw.json 中 agents.defaults.memorySearch.extraPaths 包含上述目录。\n`);
+          } catch (err) {
+            console.error(`同步失败: ${err.message}`);
+          }
+        });
+
       knowledge
         .command("setup-collector")
         .description("配置链接收集器的 cron 定时任务（定时批量入库队列中的链接）")

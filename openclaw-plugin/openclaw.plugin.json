@@ -42,6 +42,21 @@
         "type": "boolean",
         "default": false,
         "description": "是否随插件加载自动启动内置 HTTP 服务器"
+      },
+      "memorySyncEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "是否启用知识库到 OpenClaw 记忆系统的自动同步"
+      },
+      "memorySyncDir": {
+        "type": "string",
+        "default": "",
+        "description": "记忆同步 Markdown 导出目录（留空则使用 work_dir/memory-export/）"
+      },
+      "memorySyncIntervalMinutes": {
+        "type": "number",
+        "default": 10,
+        "description": "定时同步间隔（分钟），设为 0 则仅在收集/删除时同步"
       }
     }
   },
@@ -81,6 +96,22 @@
     "autoStartServer": {
       "label": "自动启动服务器",
       "help": "启用后 OpenClaw 启动时自动拉起内置 HTTP 服务器",
+      "advanced": true
+    },
+    "memorySyncEnabled": {
+      "label": "启用记忆同步",
+      "help": "将知识库摘要导出为 Markdown，供 OpenClaw memory_search 检索。需在 openclaw.json 中配置 memorySearch.extraPaths 指向导出目录。"
+    },
+    "memorySyncDir": {
+      "label": "记忆同步目录",
+      "placeholder": "work_dir/memory-export/",
+      "help": "Markdown 导出目录路径，留空使用默认位置。配置后需将此路径添加到 openclaw.json 的 agents.defaults.memorySearch.extraPaths 中。",
+      "advanced": true
+    },
+    "memorySyncIntervalMinutes": {
+      "label": "同步间隔（分钟）",
+      "placeholder": "10",
+      "help": "定时增量同步的间隔，设为 0 则仅在收集/删除时触发同步",
       "advanced": true
     }
   }
