@@ -591,6 +591,11 @@
         let currentKeyword = '';
         const perPage = 12;
 
+        // API base: plugin mode uses /plugins/js-knowledge prefix, standalone uses /api/v1
+        const API_BASE = window.location.pathname.startsWith('/plugins/js-knowledge')
+            ? '/plugins/js-knowledge/api/v1'
+            : '/api/v1';
+
         // DOM Elements
         const articleGrid = document.getElementById('articleGrid');
         const loadingState = document.getElementById('loadingState');
@@ -767,7 +772,7 @@
                     params.append('keyword', keyword);
                 }
                 
-                const response = await fetch(`api/v1/articles.json?${params}`);
+                const response = await fetch(`${API_BASE}/articles.json?${params}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
@@ -934,7 +939,7 @@
             }
 
             try {
-                const response = await fetch(`api/v1/articles/${currentArticle.id}.json`, {
+                const response = await fetch(`${API_BASE}/articles/${currentArticle.id}.json`, {
                     method: 'DELETE'
                 });
                 const data = await response.json();
