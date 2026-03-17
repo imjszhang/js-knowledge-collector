@@ -139,7 +139,7 @@ export async function exportArticles(options = {}) {
 
     // ── Prism 增量导出（逐篇 Markdown） ────
     if (format === 'prism') {
-        const prismDir = options.outputDir || path.join(PROJECT_ROOT, 'docs', 'knowledge-prism');
+        const prismDir = options.outputDir || path.join(PROJECT_ROOT, 'work_dir', 'knowledge-prism');
         const journalDir = path.join(prismDir, 'journal');
 
         let { ids: exportedIds } = force ? { ids: [] } : loadExportedIds(prismDir);
