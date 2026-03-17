@@ -145,7 +145,7 @@ export async function collect(url, options = {}) {
         try {
             const digestPath = path.join(summaryResult.summaryDir, 'digest.txt');
             if (existsSync(digestPath)) {
-                await sendFileToFlomo(digestPath);
+                await sendFileToFlomo(digestPath, { prepend: '#概要\n\n' });
                 log('Flomo 发送成功');
             }
         } catch (err) {
