@@ -360,6 +360,37 @@
             margin: 1rem 0;
         }
 
+        /* MD Source Styles */
+        .md-source-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        .md-source-pre {
+            background: #1a1a1a;
+            color: #FCD228;
+            padding: 1rem;
+            border: 3px solid #000;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 50vh;
+            overflow-y: auto;
+            margin: 0;
+        }
+        .md-source-pre:empty::after {
+            content: '点击上方「MD原文」标签加载原文内容';
+            color: #666;
+        }
+        .copy-success {
+            background: #000000 !important;
+            color: #FCD228 !important;
+            box-shadow: 4px 4px 0px 0px #FFFFFF !important;
+        }
+
         /* Delete Button Styles */
         .brutal-btn-danger {
             background: #DC2626;
@@ -532,6 +563,7 @@
             <div class="modal-tabs">
                 <button class="modal-tab active" data-tab="summary">摘要</button>
                 <button class="modal-tab" data-tab="ai-analysis">AI分析</button>
+                <button class="modal-tab" data-tab="md-source">MD原文</button>
             </div>
             <div class="modal-body">
                 <div id="tabSummary" class="tab-content active">
@@ -546,6 +578,17 @@
                         <h3 class="font-bold text-sm uppercase mb-2 text-gray-500">推荐理由</h3>
                         <div id="modalRecommend" class="markdown-content">暂无推荐理由</div>
                     </div>
+                </div>
+                <div id="tabMdSource" class="tab-content">
+                    <div class="md-source-header">
+                        <span class="font-bold text-sm uppercase text-gray-500">Markdown 原文</span>
+                        <button id="copyMdBtn" class="brutal-btn px-3 py-1 text-xs uppercase">复制</button>
+                    </div>
+                    <div id="mdSourceLoading" class="hidden flex flex-col items-center py-8">
+                        <div class="loading-spinner mb-2"></div>
+                        <p class="text-sm text-gray-500">加载原文中...</p>
+                    </div>
+                    <pre id="modalMdSource" class="md-source-pre"></pre>
                 </div>
             </div>
             <div class="modal-footer">
@@ -713,10 +756,12 @@
         }
 
         // Modal functions
-        let currentArticle = null; // Store current article for delete operation
-        
+        let currentArticle = null;
+        let articleContentCache = null;
+
         function openModal(article) {
-            currentArticle = article; // Save reference for delete
+            currentArticle = article;
+            articleContentCache = null;
             const platform = detectPlatform(article.source_url);
             
             modalTitle.textContent = article.title || '无标题';
@@ -726,16 +771,16 @@
             modalPlatform.style.color = 'white';
             modalDate.textContent = formatDate(article.created);
             
-            // Use marked.parse() to render Markdown content
             modalSummary.innerHTML = marked.parse(article.summary || '暂无摘要');
             modalDigest.innerHTML = marked.parse(article.digest || '暂无详细摘要');
             modalRecommend.innerHTML = marked.parse(article.recommend || '暂无推荐理由');
             modalReadBtn.href = article.source_url;
+
+            document.getElementById('modalMdSource').textContent = '';
+            document.getElementById('mdSourceLoading').classList.add('hidden');
             
-            // Reset to first tab
             switchTab('summary');
             
-            // Show modal
             articleModal.classList.add('active');
             document.body.style.overflow = 'hidden';
         }
@@ -752,6 +797,54 @@
             
             document.getElementById('tabSummary').classList.toggle('active', tabName === 'summary');
             document.getElementById('tabAiAnalysis').classList.toggle('active', tabName === 'ai-analysis');
+            document.getElementById('tabMdSource').classList.toggle('active', tabName === 'md-source');
+
+            if (tabName === 'md-source' && !articleContentCache && currentArticle) {
+                fetchArticleContent(currentArticle.id);
+            }
+        }
+
+        async function fetchArticleContent(id) {
+            const loadingEl = document.getElementById('mdSourceLoading');
+            const preEl = document.getElementById('modalMdSource');
+            loadingEl.classList.remove('hidden');
+            preEl.textContent = '';
+
+            try {
+                const response = await fetch(`${API_BASE}/articles/${id}.json`);
+                const data = await response.json();
+                const content = data?.data?.content || data?.content || '';
+                articleContentCache = content;
+                preEl.textContent = content || '暂无原文内容';
+            } catch (error) {
+                console.error('Error fetching article content:', error);
+                preEl.textContent = '加载失败，请重试';
+                articleContentCache = null;
+            } finally {
+                loadingEl.classList.add('hidden');
+            }
+        }
+
+        async function copyMarkdown() {
+            const preEl = document.getElementById('modalMdSource');
+            const text = preEl.textContent;
+            if (!text || text === '暂无原文内容' || text === '加载失败，请重试') return;
+
+            const btn = document.getElementById('copyMdBtn');
+            try {
+                await navigator.clipboard.writeText(text);
+                const original = btn.textContent;
+                btn.textContent = '已复制!';
+                btn.classList.add('copy-success');
+                setTimeout(() => {
+                    btn.textContent = original;
+                    btn.classList.remove('copy-success');
+                }, 1500);
+            } catch (error) {
+                console.error('Copy failed:', error);
+                btn.textContent = '复制失败';
+                setTimeout(() => { btn.textContent = '复制'; }, 1500);
+            }
         }
 
         // Fetch articles
@@ -961,6 +1054,7 @@
         // Modal event listeners
         modalCloseBtn.addEventListener('click', closeModal);
         modalDeleteBtn.addEventListener('click', showConfirmDialog);
+        document.getElementById('copyMdBtn').addEventListener('click', copyMarkdown);
 
         articleModal.addEventListener('click', (e) => {
             if (e.target === articleModal) {
