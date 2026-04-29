@@ -151,6 +151,7 @@ export default class Database {
         return { record_id: id, message: '记录添加成功' };
     }
 
+    // NOTE: fields 参数直接拼接到 SQL，由内部调用者保证安全（未暴露给外部用户输入）
     async getRecord(recordId, fields = '') {
         const select = fields
             ? fields.split(',').map(f => f.trim()).filter(Boolean).join(', ')
@@ -318,6 +319,7 @@ export default class Database {
             }
         }
 
+        // NOTE: fields 参数直接拼接到 SQL，由内部调用者保证安全（未暴露给外部用户输入）
         const select = fields?.trim()
             ? fields.split(',').map(f => f.trim()).filter(Boolean).join(', ')
             : '*';

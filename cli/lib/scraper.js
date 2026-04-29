@@ -132,6 +132,10 @@ function downloadFile(url, filePath) {
     });
 }
 
+// ── 输出辅助 ────────────────────────────────────────────────────────
+
+const log = (msg) => process.stderr.write(msg + '\n');
+
 // ── 视频平台抓取（yt-dlp） ───────────────────────────────────────────
 
 /**
@@ -142,7 +146,6 @@ function downloadFile(url, filePath) {
  * @returns {Promise<{outputPath: string, result: Object, category: string}>}
  */
 async function scrapeVideo(url, ruleName) {
-    const log = (msg) => process.stderr.write(msg + '\n');
     const categoryDir = getCategoryDir(ruleName);
 
     const platform = ruleName === 'bilibili'
@@ -242,8 +245,6 @@ export async function scrape(url, options = {}) {
 
     if (!existsSync(postDir)) await fs.mkdir(postDir, { recursive: true });
 
-    const log = (msg) => process.stderr.write(msg + '\n');
-
     const needsBrowser = useBrowser || useBrowserCookies;
     const browser = needsBrowser ? new BrowserAutomation(browserServer) : null;
 
@@ -273,7 +274,7 @@ export async function scrape(url, options = {}) {
 
             const { tabId, html: htmlContent } = scrapeResult;
             let extraData = {};
-            if (extension) try { extraData = await extension.extractExtra(tabId, htmlContent, url) || {}; } catch {}
+            if (extension) try { extraData = await extension.extractExtra(tabId, htmlContent, url) || {}; } catch (e) { log(`扩展提取额外数据失败: ${e.message}`); }
             try { await browser.closeTab(tabId); } catch {}
 
             const scraper = new WebScraper(url, customUrlRules, { maxCommentPages });

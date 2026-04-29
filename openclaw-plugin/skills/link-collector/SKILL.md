@@ -171,7 +171,7 @@ openclaw knowledge setup-collector
 检查 .openclaw/link-collector/ 下是否存在 batch-*.jsonl
 ├─ 有 → 使用该文件（恢复上次中断的处理）
 └─ 无 → 检查 inbox.jsonl
-      ├─ 不存在或为空 → 输出"队列为空，无需处理"，退出
+      ├─ 不存在或为空 → 静默退出，不产生任何输出（避免每次 cron 触发都推送空队列通知到微信）
       └─ 有内容 → 执行轮转：
            1. rename .openclaw/link-collector/inbox.jsonl → .openclaw/link-collector/batch-{ISO时间戳}.jsonl
            2. 创建新的空 .openclaw/link-collector/inbox.jsonl
@@ -198,7 +198,9 @@ rename 是原子操作，轮转后新链接写入新的 inbox，与 batch 处理
 ### 步骤 3：归档与摘要
 
 1. 将处理完的 batch 文件移至 `.openclaw/link-collector/archive/` 目录。
-2. 输出处理摘要：成功 N 条、失败（已回队列）N 条、永久失败 N 条、跳过（已入库）N 条。
+2. 统计本次处理结果：成功 N 条、失败（已回队列）N 条、永久失败 N 条、跳过（已入库）N 条。
+3. 如果以上四项总数均为 0（即队列为空，无任何待处理条目），静默退出，不输出摘要，避免触发空通知。
+4. 否则，输出处理摘要（格式同第 2 步统计结果）。
 
 ---
 

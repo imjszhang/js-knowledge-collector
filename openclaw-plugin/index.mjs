@@ -59,8 +59,12 @@ function serveStaticFile(res, filePath) {
   const mime = MIME_TYPES[ext] || "application/octet-stream";
   const stream = nodeFs.createReadStream(filePath);
   stream.on("error", () => {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not Found");
+    if (res.headersSent) {
+      res.end();
+    } else {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("Not Found");
+    }
   });
   res.writeHead(200, { "Content-Type": mime });
   stream.pipe(res);
@@ -239,6 +243,15 @@ export default function register(api) {
     path: `${ROUTE_PREFIX}/api/v1/stats.json`,
     auth: "plugin",
     async handler(req, res) {
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        });
+        res.end();
+        return;
+      }
       const db = await getDb();
       try {
         const stats = await db.getStats();

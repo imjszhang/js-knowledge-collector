@@ -14,9 +14,9 @@
  *   delete <id>
  *   export           [--format prism|json|md] [--force]
  *   build            [--dry-run]
- *   serve
+ *   serve            [--port <N>]
  *   commit           [--message "..."]
- *   sync             [--no-build] [--no-push] [--message "..."]
+ *   sync             [--no-push] [--message "..."]
  *
  * All output is JSON to stdout. Logs go to stderr.
  */
@@ -203,6 +203,9 @@ Commands:
 
   build              Build static site + API to docs/
     --dry-run          Validate only
+
+  serve              Start built-in HTTP server (for standalone use)
+    --port <N>          Port number (default 3000)
 
   commit             Stage all changes and commit
     --message "msg"    Custom commit message
