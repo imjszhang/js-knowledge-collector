@@ -7,7 +7,12 @@
  *   node cli/cli.js <command> [options]
  *
  * Commands:
- *   collect <url>    [--flomo] [--no-summary] [--force] [--force-summary]
+ *   collect <url|path> [--flomo] [--no-summary] [--force] [--force-summary]
+ *     Auto-detects URL vs local file path. Supports md, txt, pdf, docx, html.
+ *   collect-file <path> [--flomo] [--no-summary] [--force]
+ *     Explicitly collect a local file (md/txt/pdf/docx/html).
+ *   collect-dir <dir>  [--recursive] [--include <exts>] [--flomo] [--no-summary]
+ *     Batch collect files from a directory.
  *   search <keyword> [--source <platform>]
  *   list             [--source <platform>] [--page N] [--per-page N] [--sort <field>]
  *   stats
@@ -51,19 +56,97 @@ function parseArgs(argv) {
 // ── Command handlers ─────────────────────────────────────────────────
 
 async function cmdCollect(positional, flags) {
-    const url = positional[0];
-    if (!url) {
-        toStderr('Error: collect requires a URL argument.');
+    const input = positional[0];
+    if (!input) {
+        toStderr('Error: collect requires a URL or file path argument.');
         process.exit(1);
     }
     const { collect } = await import('./lib/collector.js');
-    const result = await collect(url, {
+    const result = await collect(input, {
         flomo: !!flags.flomo,
         noSummary: !!flags['no-summary'],
         force: !!flags.force,
         forceSummary: !!flags['force-summary'],
     });
     toJson(result);
+}
+
+async function cmdCollectFile(positional, flags) {
+    const filePath = positional[0];
+    if (!filePath) {
+        toStderr('Error: collect-file requires a file path argument.');
+        process.exit(1);
+    }
+    const { collectFile } = await import('./lib/collector.js');
+    const result = await collectFile(filePath, {
+        flomo: !!flags.flomo,
+        noSummary: !!flags['no-summary'],
+        force: !!flags.force,
+    });
+    toJson(result);
+}
+
+async function cmdCollectDir(positional, flags) {
+    const dirPath = positional[0];
+    if (!dirPath) {
+        toStderr('Error: collect-dir requires a directory argument.');
+        process.exit(1);
+    }
+
+    const { collectFile } = await import('./lib/collector.js');
+    const { isLocalPath, detectFileType } = await import('./lib/file-path.js');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const recursive = !!flags.recursive;
+    const includeExts = flags.include
+        ? flags.include.split(',').map(e => e.trim().replace(/^\./, '')).filter(Boolean)
+        : ['md', 'txt', 'pdf', 'docx', 'html', 'htm'];
+
+    const results = { total: 0, success: 0, failed: 0, skipped: 0, items: [] };
+
+    async function scanDir(dir) {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory() && recursive) {
+                await scanDir(fullPath);
+            } else if (entry.isFile()) {
+                const ext = path.extname(entry.name).replace('.', '').toLowerCase();
+                if (includeExts.includes(ext)) {
+                    results.total++;
+                    try {
+                        detectFileType(fullPath); // validate type
+                    } catch {
+                        results.skipped++;
+                        results.items.push({ path: fullPath, status: 'skipped', reason: 'unsupported type' });
+                        continue;
+                    }
+                    try {
+                        const result = await collectFile(fullPath, {
+                            flomo: !!flags.flomo,
+                            noSummary: !!flags['no-summary'],
+                            force: !!flags.force,
+                        });
+                        results.success++;
+                        results.items.push({ path: fullPath, status: 'success', title: result.title, record_id: result.record_id });
+                    } catch (err) {
+                        results.failed++;
+                        results.items.push({ path: fullPath, status: 'failed', error: err.message });
+                    }
+                }
+            }
+        }
+    }
+
+    try {
+        await scanDir(dirPath);
+    } catch (err) {
+        toStderr(`Error: ${err.message}`);
+        process.exit(1);
+    }
+
+    toJson({ status: 'success', ...results });
 }
 
 async function cmdSearch(positional, flags) {
@@ -184,6 +267,18 @@ Commands:
     --force            Force re-scrape (ignore cache)
     --force-summary    Force re-summarize only
 
+  collect-file <path>  Collect a local file (md/txt/pdf/docx/html)
+    --flomo            Also send summary to Flomo
+    --no-summary       Skip AI summary
+    --force            Force re-parse (ignore cache)
+
+  collect-dir <dir>    Batch collect files from a directory
+    --recursive        Scan subdirectories
+    --include <exts>   Comma-separated extensions (default: md,txt,pdf,docx,html,htm)
+    --flomo            Also send summaries to Flomo
+    --no-summary       Skip AI summary
+    --force            Force re-parse
+
   search <keyword>   Search articles by keyword
     --source <plat>    Filter by platform (wechat|zhihu|xiaohongshu|...)
 
@@ -230,8 +325,10 @@ async function main() {
     const { command, positional, flags } = parseArgs(process.argv);
 
     switch (command) {
-        case 'collect':     await cmdCollect(positional, flags); break;
-        case 'search':      await cmdSearch(positional, flags);  break;
+        case 'collect':       await cmdCollect(positional, flags); break;
+        case 'collect-file':  await cmdCollectFile(positional, flags); break;
+        case 'collect-dir':   await cmdCollectDir(positional, flags); break;
+        case 'search':        await cmdSearch(positional, flags);  break;
         case 'list':        await cmdList(flags);                break;
         case 'stats':       await cmdStats();                    break;
         case 'delete':      await cmdDelete(positional);         break;

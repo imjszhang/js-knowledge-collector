@@ -13,6 +13,8 @@ import { scrape, detectRuleName } from './scraper.js';
 import { summarize } from './summarizer.js';
 import Database from './database.js';
 import { sendToFlomo, sendFileToFlomo } from './flomo.js';
+import { isLocalPath, resolveFilePath, detectFileType, getCachePath } from './file-path.js';
+import { parseFile } from './parsers/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
@@ -74,7 +76,7 @@ async function findCachedScrape(url) {
 // ── 核心导出 ─────────────────────────────────────────────────────────
 
 /**
- * 完整收集流程：抓取 → 总结 → 入库 → Flomo
+ * 完整收集流程（URL）：抓取 → 总结 → 入库 → Flomo
  *
  * @param {string} url 目标 URL
  * @param {Object} [options]
@@ -84,7 +86,7 @@ async function findCachedScrape(url) {
  * @param {boolean} [options.forceSummary=false]  强制重新总结
  * @returns {Promise<Object>} 收集结果
  */
-export async function collect(url, options = {}) {
+export async function collectUrl(url, options = {}) {
     const { flomo = false, noSummary = false, force = false, forceSummary = false } = options;
 
     const { url: finalUrl, type: urlType } = convertUrl(url);
@@ -163,4 +165,111 @@ export async function collect(url, options = {}) {
         hasSummary: !!summaryResult,
         sentToFlomo: flomo && !!summaryResult,
     };
+}
+
+/**
+ * 完整收集流程（本地文件）：解析 → 总结 → 入库 → Flomo
+ *
+ * @param {string} filePath 本地文件路径
+ * @param {Object} [options]
+ * @param {boolean} [options.flomo=false]        发送到 Flomo
+ * @param {boolean} [options.noSummary=false]     跳过 AI 总结
+ * @param {boolean} [options.force=false]         强制重新解析
+ * @returns {Promise<Object>} 收集结果
+ */
+export async function collectFile(filePath, options = {}) {
+    const { flomo = false, noSummary = false, force = false } = options;
+
+    const absPath = resolveFilePath(filePath);
+    const fileType = detectFileType(absPath);
+    log(`收集文件: ${absPath} (类型: ${fileType})`);
+
+    // 1. 解析（或读缓存）
+    const cachePath = getCachePath(absPath);
+    let scrapeResult;
+    if (!force && existsSync(cachePath)) {
+        log(`使用缓存解析结果: ${cachePath}`);
+        const raw = await fs.readFile(cachePath, 'utf-8');
+        scrapeResult = JSON.parse(raw);
+    } else {
+        log('Step 1: 解析本地文件 ...');
+        scrapeResult = await parseFile(absPath, fileType);
+
+        // 写入缓存
+        const cacheDir = path.dirname(cachePath);
+        await fs.mkdir(cacheDir, { recursive: true });
+        await fs.writeFile(cachePath, JSON.stringify(scrapeResult, null, 2), 'utf-8');
+        log(`解析结果已缓存: ${cachePath}`);
+    }
+
+    if (scrapeResult.error !== '0') {
+        throw new Error(`文件解析失败: ${scrapeResult.data?.message || 'unknown error'}`);
+    }
+
+    // 2. AI 总结（复用 scrape output path 格式，让 summarizer 能读取）
+    let summaryResult = null;
+    if (!noSummary) {
+        log('Step 2: AI 总结 ...');
+        try {
+            summaryResult = await summarize(cachePath, {});
+        } catch (err) {
+            log(`AI 总结失败: ${err.message}，继续流程`);
+        }
+    }
+
+    // 3. 组装数据
+    const fileSourceUrl = `file://${absPath}`;
+    const assembled = assembleData(scrapeResult, summaryResult, fileSourceUrl);
+    log(`Step 3: 数据组装完成 — ${assembled.title || '(无标题)'}`);
+
+    // 4. 入库
+    log('Step 4: 保存到数据库 ...');
+    const db = new Database(resolveDbPath());
+    await db.connect();
+    try {
+        const { record_id } = await db.addRecord(assembled);
+        log(`已保存: ${record_id}`);
+        assembled.record_id = record_id;
+    } finally {
+        await db.close();
+    }
+
+    // 5. Flomo
+    if (flomo && summaryResult?.summaryDir) {
+        log('Step 5: 发送摘要到 Flomo ...');
+        try {
+            const digestPath = path.join(summaryResult.summaryDir, 'digest.txt');
+            if (existsSync(digestPath)) {
+                await sendFileToFlomo(digestPath, { prepend: '#概要\n\n' });
+                log('Flomo 发送成功');
+            }
+        } catch (err) {
+            log(`Flomo 发送失败: ${err.message}`);
+        }
+    }
+
+    return {
+        status: 'success',
+        url: fileSourceUrl,
+        title: assembled.title,
+        record_id: assembled.record_id,
+        scrapeOutputPath: cachePath,
+        summaryDir: summaryResult?.summaryDir || null,
+        hasSummary: !!summaryResult,
+        sentToFlomo: flomo && !!summaryResult,
+    };
+}
+
+/**
+ * 统一收集入口：自动检测 URL 或本地文件。
+ *
+ * @param {string} input URL 或本地文件路径
+ * @param {Object} [options]
+ * @returns {Promise<Object>} 收集结果
+ */
+export async function collect(input, options = {}) {
+    if (isLocalPath(input)) {
+        return collectFile(input, options);
+    }
+    return collectUrl(input, options);
 }
