@@ -107,7 +107,16 @@ function convertCookiesToHeader(cookies) {
 
 async function getCookiesFromBrowser(url, browser) {
     const domain = new URL(url).hostname;
-    const result = await browser.getCookiesByDomain(domain, { includeSubdomains: true });
+    let result;
+    try {
+        result = await browser.getCookiesByDomain(domain, { includeSubdomains: true });
+    } catch (error) {
+        const code = error?.code || '';
+        if (code === 'POLICY_BLOCK' || code.startsWith('POLICY_')) {
+            throw new Error(`JS-Eyes 策略拦截了浏览器 cookies 获取 (${domain}): ${error.message}`);
+        }
+        throw error;
+    }
     if (result.status === 'success' && result.cookies?.length) return result.cookies;
     return [];
 }

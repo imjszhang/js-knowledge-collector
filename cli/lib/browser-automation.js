@@ -6,7 +6,7 @@
  * - openOrReuseTab: 标签页复用
  * - waitForTabReady: 等待页面加载完成（轮询 document.readyState）
  * - waitForContentReady: 等待页面内容渲染就绪
- * - getCookiesByDomain: 按域名获取 cookies（通过 getTabs + getCookies 组合实现）
+ * - getCookiesByDomain: 通过 JS-Eyes SDK 按域名获取 cookies
  *
  * 变更历史：
  * - v4.0.0：底层替换为 JS-Eyes Client，移除自研 WebSocket 通信、Challenge-Response 认证、
@@ -109,10 +109,7 @@ class BrowserAutomation {
   // ============================================
 
   /**
-   * 按域名获取 cookies（通过遍历标签页 + getCookies 组合实现）
-   *
-   * JS-Eyes 服务端不支持 get_cookies_by_domain 操作，
-   * 此方法找到匹配域名的标签页，获取其 cookies 后去重合并。
+   * 按域名获取 cookies。
    *
    * @param {string} domain 域名，如 "xiaohongshu.com"
    * @param {Object} [options]
@@ -120,59 +117,14 @@ class BrowserAutomation {
    * @returns {Promise<Object>} { status, cookies }
    */
   async getCookiesByDomain(domain, options = {}) {
-    const { includeSubdomains = true } = options;
-
     try {
-      const tabsResult = await this.getTabs();
-      const tabs = tabsResult.tabs || [];
-
-      const matchingTabs = tabs.filter(tab => {
-        try {
-          const tabHost = new URL(tab.url).hostname;
-          if (includeSubdomains) {
-            return tabHost === domain || tabHost.endsWith('.' + domain);
-          }
-          return tabHost === domain;
-        } catch {
-          return false;
-        }
-      });
-
-      if (!matchingTabs.length) {
-        this.logger.warn(`未找到匹配域名 ${domain} 的标签页，尝试获取第一个标签页的 cookies`);
-        if (tabs.length) {
-          const cookies = await this.getCookies(tabs[0].id);
-          const filtered = cookies.filter(c => {
-            const d = (c.domain || '').replace(/^\./, '');
-            return includeSubdomains
-              ? (d === domain || d.endsWith('.' + domain))
-              : d === domain;
-          });
-          return { status: 'success', cookies: filtered };
-        }
-        return { status: 'success', cookies: [] };
+      // Add domain to JS-Eyes task origin scope to avoid soft-block
+      if (this._client.policy && this._client.policy.taskOrigin && typeof this._client.policy.taskOrigin.addExplicit === 'function') {
+        this._client.policy.taskOrigin.addExplicit(domain);
       }
-
-      const allCookies = [];
-      const seen = new Set();
-
-      for (const tab of matchingTabs) {
-        try {
-          const cookies = await this.getCookies(tab.id);
-          for (const c of cookies) {
-            const key = `${c.domain}|${c.name}|${c.path || '/'}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              allCookies.push(c);
-            }
-          }
-        } catch (err) {
-          this.logger.warn(`获取标签页 ${tab.id} cookies 失败: ${err.message}`);
-        }
-      }
-
-      this.logger.info(`按域名获取 ${allCookies.length} 个 cookies (${domain})`);
-      return { status: 'success', cookies: allCookies };
+      const cookies = await this._client.getCookiesByDomain(domain, options);
+      this.logger.info(`按域名获取 ${cookies.length} 个 cookies (${domain})`);
+      return { status: 'success', cookies };
     } catch (error) {
       this.logger.error(`按域名获取 cookies 失败: ${error.message}`);
       throw error;

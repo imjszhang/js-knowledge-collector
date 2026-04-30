@@ -15,6 +15,9 @@
     "cli": "node cli/cli.js"
   },
   "dependencies": {
+    "@js-eyes/client-sdk": "file:../js-eyes/packages/client-sdk",
+    "@js-eyes/protocol": "file:../js-eyes/packages/protocol",
+    "@js-eyes/runtime-paths": "file:../js-eyes/packages/runtime-paths",
     "cheerio": "^1.1.2",
     "dotenv": "^16.4.7",
     "mammoth": "^1.12.0",
