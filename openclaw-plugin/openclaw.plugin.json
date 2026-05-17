@@ -1,8 +1,31 @@
 {
   "id": "js-knowledge-collector",
+  "activation": {
+    "onStartup": true
+  },
   "name": "JS Knowledge Collector",
   "description": "知识收集器 — 为 AI Agent 提供网页抓取、AI 总结、知识库管理能力。支持微信公众号、知乎、小红书、X.com 等主流平台。",
   "version": "1.0.0",
+  "contracts": {
+    "tools": [
+      "knowledge_collect",
+      "knowledge_search",
+      "knowledge_list",
+      "knowledge_get",
+      "knowledge_stats",
+      "knowledge_delete",
+      "knowledge_export"
+    ]
+  },
+  "toolMetadata": {
+    "knowledge_collect": { "optional": true },
+    "knowledge_search": { "optional": true },
+    "knowledge_list": { "optional": true },
+    "knowledge_get": { "optional": true },
+    "knowledge_stats": { "optional": true },
+    "knowledge_delete": { "optional": true },
+    "knowledge_export": { "optional": true }
+  },
   "skills": ["./skills"],
   "configSchema": {
     "type": "object",
