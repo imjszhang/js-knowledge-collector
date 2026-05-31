@@ -81,6 +81,15 @@ export async function syncToMemory({ dbPath, outputDir, force = false }) {
 
     const state = force ? { lastSyncAt: null, articles: {} } : loadSyncState(outputDir);
     const dbIdSet = new Set(articles.map((a) => a.id));
+    const stateCount = Object.keys(state.articles).length;
+
+    // 防止连错库时批量删除已有导出（如 flomo 插件覆盖 DB_PATH 后只剩几条缓存）
+    if (!force && stateCount >= 10 && articles.length > 0 && articles.length < stateCount * 0.5) {
+        throw new Error(
+            `Memory sync aborted: database has ${articles.length} articles at ${dbPath}, `
+            + `but sync state tracks ${stateCount}. Wrong dbPath? Fix config then run with force=true.`,
+        );
+    }
 
     let synced = 0;
     for (const article of articles) {

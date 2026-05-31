@@ -10,12 +10,12 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function resolveDbPath() {
-    return process.env.DB_PATH || path.resolve(__dirname, '../../data/data.db');
+function resolveDbPath(explicit) {
+    return explicit || process.env.DB_PATH || path.resolve(__dirname, '../../data/data.db');
 }
 
-async function withDb(fn) {
-    const db = new Database(resolveDbPath());
+async function withDb(fn, dbPath) {
+    const db = new Database(resolveDbPath(dbPath));
     try {
         await db.connect();
         return await fn(db);
@@ -25,25 +25,31 @@ async function withDb(fn) {
 }
 
 export function searchArticles(keyword, options = {}) {
-    return withDb(db => db.getArticles({ keyword, ...options }));
+    const { dbPath, ...query } = options;
+    return withDb(db => db.getArticles({ keyword, ...query }), dbPath);
 }
 
 export function listArticles(options = {}) {
-    return withDb(db => db.getArticles(options));
+    const { dbPath, ...query } = options;
+    return withDb(db => db.getArticles(query), dbPath);
 }
 
-export function getArticle(id) {
-    return withDb(db => db.getRecord(id));
+export function getArticle(id, options = {}) {
+    const dbPath = typeof options === 'string' ? options : options.dbPath;
+    return withDb(db => db.getRecord(id), dbPath);
 }
 
-export function deleteArticle(id) {
-    return withDb(db => db.deleteRecord(id));
+export function deleteArticle(id, options = {}) {
+    const dbPath = typeof options === 'string' ? options : options.dbPath;
+    return withDb(db => db.deleteRecord(id), dbPath);
 }
 
-export function getStats() {
-    return withDb(db => db.getStats());
+export function getStats(options = {}) {
+    const dbPath = typeof options === 'string' ? options : options.dbPath;
+    return withDb(db => db.getStats(), dbPath);
 }
 
 export function queryRecords(options = {}) {
-    return withDb(db => db.getRecords(options));
+    const { dbPath, ...query } = options;
+    return withDb(db => db.getRecords(query), dbPath);
 }

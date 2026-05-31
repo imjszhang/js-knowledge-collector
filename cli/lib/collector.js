@@ -87,7 +87,7 @@ async function findCachedScrape(url) {
  * @returns {Promise<Object>} 收集结果
  */
 export async function collectUrl(url, options = {}) {
-    const { flomo = false, noSummary = false, force = false, forceSummary = false } = options;
+    const { flomo = false, noSummary = false, force = false, forceSummary = false, dbPath } = options;
 
     const { url: finalUrl, type: urlType } = convertUrl(url);
     log(`收集: ${finalUrl} (类型: ${urlType})`);
@@ -131,7 +131,7 @@ export async function collectUrl(url, options = {}) {
 
     // 4. 入库
     log('Step 4: 保存到数据库 ...');
-    const db = new Database(resolveDbPath());
+    const db = new Database(dbPath || resolveDbPath());
     await db.connect();
     try {
         const { record_id } = await db.addRecord(assembled);
@@ -178,7 +178,7 @@ export async function collectUrl(url, options = {}) {
  * @returns {Promise<Object>} 收集结果
  */
 export async function collectFile(filePath, options = {}) {
-    const { flomo = false, noSummary = false, force = false } = options;
+    const { flomo = false, noSummary = false, force = false, dbPath } = options;
 
     const absPath = resolveFilePath(filePath);
     const fileType = detectFileType(absPath);
@@ -224,7 +224,7 @@ export async function collectFile(filePath, options = {}) {
 
     // 4. 入库
     log('Step 4: 保存到数据库 ...');
-    const db = new Database(resolveDbPath());
+    const db = new Database(dbPath || resolveDbPath());
     await db.connect();
     try {
         const { record_id } = await db.addRecord(assembled);

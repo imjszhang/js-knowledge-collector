@@ -25,15 +25,16 @@ const MIME_TYPES = {
 };
 
 function applyEnv(pluginCfg) {
-  if (pluginCfg.dbPath) process.env.DB_PATH = pluginCfg.dbPath;
+  // dbPath 不写入 process.env.DB_PATH — 避免被 js-knowledge-flomo 等同进程插件覆盖
   if (pluginCfg.llmApiBaseUrl) process.env.LLM_API_BASE_URL = pluginCfg.llmApiBaseUrl;
   if (pluginCfg.llmApiKey) process.env.LLM_API_KEY = pluginCfg.llmApiKey;
   if (pluginCfg.llmApiModel) process.env.LLM_API_MODEL = pluginCfg.llmApiModel;
   if (pluginCfg.flomoWebhookUrl) process.env.FLOMO_API_URL = pluginCfg.flomoWebhookUrl;
 }
 
-function resolveDbPath() {
-  return process.env.DB_PATH || nodePath.join(PROJECT_ROOT, "data", "data.db");
+function resolveCollectorDbPath(pluginCfg) {
+  if (pluginCfg.dbPath) return nodePath.resolve(pluginCfg.dbPath);
+  return nodePath.join(PROJECT_ROOT, "data", "data.db");
 }
 
 function textResult(text) {
@@ -70,9 +71,9 @@ function serveStaticFile(res, filePath) {
   stream.pipe(res);
 }
 
-async function getDb() {
+async function getDb(dbPath) {
   const Database = (await import("../cli/lib/database.js")).default;
-  const db = new Database(resolveDbPath());
+  const db = new Database(dbPath);
   await db.connect();
   return db;
 }
@@ -82,6 +83,7 @@ export default function register(api) {
   dotenv.config({ path: nodePath.join(PROJECT_ROOT, ".env"), override: false });
 
   const pluginCfg = api.pluginConfig ?? {};
+  const collectorDbPath = resolveCollectorDbPath(pluginCfg);
 
   const serverPort = pluginCfg.serverPort || 3000;
   const autoStart = pluginCfg.autoStartServer ?? false;
@@ -104,7 +106,7 @@ export default function register(api) {
   async function runMemorySync({ force = false, logger } = {}) {
     try {
       const { syncToMemory } = await import("../cli/lib/memory-sync.js");
-      return await syncToMemory({ dbPath: resolveDbPath(), outputDir: memorySyncDir, force });
+      return await syncToMemory({ dbPath: collectorDbPath, outputDir: memorySyncDir, force });
     } catch (err) {
       if (logger) logger.error(`[knowledge] memory sync failed: ${err.message}`);
       return null;
@@ -222,7 +224,7 @@ export default function register(api) {
         res.end();
         return;
       }
-      const db = await getDb();
+      const db = await getDb(collectorDbPath);
       try {
         const parsed = new URL(req.url, `http://${req.headers.host || "localhost"}`);
         const page = parseInt(parsed.searchParams.get("page"), 10) || 1;
@@ -252,7 +254,7 @@ export default function register(api) {
         res.end();
         return;
       }
-      const db = await getDb();
+      const db = await getDb(collectorDbPath);
       try {
         const stats = await db.getStats();
         sendJson(res, 200, stats);
@@ -285,7 +287,7 @@ export default function register(api) {
         return;
       }
       const id = match[1];
-      const db = await getDb();
+      const db = await getDb(collectorDbPath);
       try {
         if (req.method === "DELETE") {
           const result = await db.deleteRecord(id);
@@ -374,6 +376,7 @@ export default function register(api) {
         try {
           const { collect } = await import("../cli/lib/collector.js");
           const result = await collect(params.url, {
+            dbPath: collectorDbPath,
             flomo: params.flomo ?? false,
             noSummary: params.noSummary ?? false,
             force: params.force ?? false,
@@ -423,6 +426,7 @@ export default function register(api) {
         try {
           const { searchArticles } = await import("../cli/lib/data-reader.js");
           const result = await searchArticles(params.keyword, {
+            dbPath: collectorDbPath,
             source: params.source,
           });
           if (!result || result.length === 0) {
@@ -465,6 +469,7 @@ export default function register(api) {
         try {
           const { listArticles } = await import("../cli/lib/data-reader.js");
           const result = await listArticles({
+            dbPath: collectorDbPath,
             source: params.source,
             page: params.page,
             perPage: params.perPage,
@@ -501,7 +506,7 @@ export default function register(api) {
       async execute(_toolCallId, params) {
         try {
           const { getArticle } = await import("../cli/lib/data-reader.js");
-          const result = await getArticle(params.id);
+          const result = await getArticle(params.id, { dbPath: collectorDbPath });
           if (!result) {
             return textResult(`未找到 ID 为 "${params.id}" 的文章。`);
           }
@@ -527,7 +532,7 @@ export default function register(api) {
       async execute() {
         try {
           const { getStats } = await import("../cli/lib/data-reader.js");
-          const stats = await getStats();
+          const stats = await getStats({ dbPath: collectorDbPath });
 
           const lines = ["## 知识库统计"];
           if (stats.total !== undefined) {
@@ -570,7 +575,7 @@ export default function register(api) {
       async execute(_toolCallId, params) {
         try {
           const { deleteArticle } = await import("../cli/lib/data-reader.js");
-          const result = await deleteArticle(params.id);
+          const result = await deleteArticle(params.id, { dbPath: collectorDbPath });
 
           if (memorySyncEnabled) runMemorySync();
 
@@ -639,7 +644,7 @@ export default function register(api) {
         .action(async () => {
           try {
             const { getStats } = await import("../cli/lib/data-reader.js");
-            const stats = await getStats();
+            const stats = await getStats({ dbPath: collectorDbPath });
             console.log("\n=== 知识库统计 ===");
             if (stats.total !== undefined) {
               console.log(`  文章总数: ${stats.total}`);
@@ -666,6 +671,7 @@ export default function register(api) {
           try {
             const { listArticles } = await import("../cli/lib/data-reader.js");
             const result = await listArticles({
+              dbPath: collectorDbPath,
               source: opts.source,
               page: parseInt(opts.page, 10),
               perPage: parseInt(opts.perPage, 10),
@@ -684,6 +690,7 @@ export default function register(api) {
           try {
             const { searchArticles } = await import("../cli/lib/data-reader.js");
             const result = await searchArticles(keyword, {
+              dbPath: collectorDbPath,
               source: opts.source,
             });
             console.log(JSON.stringify(result, null, 2));
@@ -702,6 +709,7 @@ export default function register(api) {
           try {
             const { collect } = await import("../cli/lib/collector.js");
             const result = await collect(url, {
+              dbPath: collectorDbPath,
               flomo: !!opts.flomo,
               noSummary: !!opts.noSummary,
               force: !!opts.force,
@@ -725,7 +733,7 @@ export default function register(api) {
               ? nodePath.resolve(opts.dir)
               : memorySyncDir;
             const result = await syncToMemory({
-              dbPath: resolveDbPath(),
+              dbPath: collectorDbPath,
               outputDir,
               force: !!opts.force,
             });
