@@ -12,8 +12,8 @@ import fs from 'node:fs/promises';
  * @returns {Promise<Object>} API 响应
  */
 export async function sendToFlomo(content) {
-    const apiUrl = process.env.FLOMO_API_URL;
-    if (!apiUrl) throw new Error('FLOMO_API_URL 环境变量未设置');
+    const apiUrl = process.env.FLOMO_API_URL || process.env.FLOMO_WEBHOOK_URL;
+    if (!apiUrl) throw new Error('FLOMO_API_URL / FLOMO_WEBHOOK_URL 环境变量均未设置');
     if (!content?.trim()) throw new Error('内容不能为空');
 
     const response = await fetch(apiUrl, {

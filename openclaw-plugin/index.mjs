@@ -29,7 +29,7 @@ function applyEnv(pluginCfg) {
   if (pluginCfg.llmApiBaseUrl) process.env.LLM_API_BASE_URL = pluginCfg.llmApiBaseUrl;
   if (pluginCfg.llmApiKey) process.env.LLM_API_KEY = pluginCfg.llmApiKey;
   if (pluginCfg.llmApiModel) process.env.LLM_API_MODEL = pluginCfg.llmApiModel;
-  if (pluginCfg.flomoWebhookUrl) process.env.FLOMO_WEBHOOK_URL = pluginCfg.flomoWebhookUrl;
+  if (pluginCfg.flomoWebhookUrl) process.env.FLOMO_API_URL = pluginCfg.flomoWebhookUrl;
 }
 
 function resolveDbPath() {
