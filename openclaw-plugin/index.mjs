@@ -369,6 +369,10 @@ export default function register(api) {
             type: "boolean",
             description: "强制重新总结（默认 false）",
           },
+          downloadMedia: {
+            type: "boolean",
+            description: "下载推文/页面中的图片与视频到 scrape 目录（默认 false）",
+          },
         },
         required: ["url"],
       },
@@ -381,6 +385,7 @@ export default function register(api) {
             noSummary: params.noSummary ?? false,
             force: params.force ?? false,
             forceSummary: params.forceSummary ?? false,
+            downloadMedia: params.downloadMedia ?? false,
           });
 
           if (memorySyncEnabled) runMemorySync();
@@ -705,6 +710,7 @@ export default function register(api) {
         .option("--flomo", "同时推送到 Flomo")
         .option("--no-summary", "跳过 AI 总结")
         .option("--force", "强制重新抓取")
+        .option("--download-media", "下载页面媒体到 scrape 目录")
         .action(async (url, opts) => {
           try {
             const { collect } = await import("../cli/lib/collector.js");
@@ -713,6 +719,7 @@ export default function register(api) {
               flomo: !!opts.flomo,
               noSummary: !!opts.noSummary,
               force: !!opts.force,
+              downloadMedia: !!opts.downloadMedia,
             });
             console.log(`\n✓ 收集成功: ${result.title || "(无标题)"}`);
             console.log(`  记录 ID: ${result.record_id}`);

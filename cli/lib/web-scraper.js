@@ -165,6 +165,7 @@
 
 import * as cheerio from 'cheerio';
 import fs from 'node:fs/promises';
+import { normalizePhotoUrl, normalizeImageUrls, normalizeVideoUrls, isAllowedMediaUrl } from './media/twimg.js';
 
 class WebScraper {
     /**
@@ -1696,43 +1697,11 @@ class WebScraper {
                      $img.attr('data-original') || '';
             
             if (src && src.includes('pbs.twimg.com/media')) {
-                // 过滤掉头像图片和视频缩略图
-                if (!src.includes('profile_images') && 
-                    !src.includes('avatar') && 
+                if (!src.includes('profile_images') &&
+                    !src.includes('avatar') &&
                     !src.includes('ext_tw_video_thumb')) {
-                    
-                    // 标准化图片 URL，确保获取原始尺寸
-                    // URL 格式: https://pbs.twimg.com/media/{id}?format={format}&name={size}
-                    // 我们移除 name 参数，然后添加 name=orig 以获取原始尺寸
-                    let cleanSrc = src;
-                    
-                    try {
-                        // 如果 URL 包含查询参数，处理参数
-                        if (cleanSrc.includes('?')) {
-                            const urlObj = new URL(cleanSrc);
-                            // 移除 name 参数（尺寸参数）
-                            urlObj.searchParams.delete('name');
-                            // 确保有 format 参数，如果没有则添加默认值
-                            if (!urlObj.searchParams.has('format')) {
-                                urlObj.searchParams.set('format', 'jpg');
-                            }
-                            // 添加 name=orig 以获取原始尺寸
-                            urlObj.searchParams.set('name', 'orig');
-                            cleanSrc = urlObj.toString();
-                        } else {
-                            // 如果 URL 没有查询参数，添加 format 和 name 参数
-                            cleanSrc = cleanSrc + '?format=jpg&name=orig';
-                        }
-                    } catch (error) {
-                        // 如果 URL 解析失败，尝试简单处理
-                        console.warn(`解析图片 URL 失败: ${src}, 错误: ${error.message}`);
-                        // 如果 URL 不完整，尝试添加参数
-                        if (!cleanSrc.includes('?')) {
-                            cleanSrc = cleanSrc + '?format=jpg&name=orig';
-                        }
-                    }
-                    
-                    if (!seenUrls.has(cleanSrc)) {
+                    const cleanSrc = normalizePhotoUrl(src);
+                    if (cleanSrc && !seenUrls.has(cleanSrc)) {
                         seenUrls.add(cleanSrc);
                         imageUrls.push(cleanSrc);
                     }
@@ -1743,9 +1712,10 @@ class WebScraper {
         // 方法2: 从 video 标签的 poster 属性提取（视频封面图）
         $tweetElement.find('video[poster*="pbs.twimg.com/media"]').each((i, elem) => {
             const poster = $(elem).attr('poster') || '';
-            if (poster && !seenUrls.has(poster)) {
-                seenUrls.add(poster);
-                imageUrls.push(poster);
+            const cleanPoster = normalizePhotoUrl(poster) || poster;
+            if (cleanPoster && !seenUrls.has(cleanPoster)) {
+                seenUrls.add(cleanPoster);
+                imageUrls.push(cleanPoster);
             }
         });
         
@@ -1782,8 +1752,7 @@ class WebScraper {
             const possibleAttrs = ['data-video-url', 'data-media-url', 'data-src', 'src'];
             for (const attr of possibleAttrs) {
                 const src = $video.attr(attr) || '';
-                if (src && !src.startsWith('blob:') && 
-                    (src.includes('video.twimg.com') || src.includes('pbs.twimg.com') || src.startsWith('http'))) {
+                if (src && !src.startsWith('blob:') && isAllowedMediaUrl(src)) {
                     if (!seenVideoUrls.has(src)) {
                         seenVideoUrls.add(src);
                         videoUrls.push(src);
@@ -1953,6 +1922,9 @@ class WebScraper {
         // 提取评论（可选）
         const comments = this.extractXComComments($tweetElement);
         
+        const normalizedImages = normalizeImageUrls(imageUrls);
+        const normalizedVideos = normalizeVideoUrls(videoUrls);
+
         return {
             title,  // Article 类型有标题，Status 类型为空字符串
             content,
@@ -1965,9 +1937,9 @@ class WebScraper {
             retweet_count: retweetCount,
             reply_count: replyCount,
             view_count: viewCount,
-            image_urls: imageUrls,
-            video_urls: videoUrls,
-            media_count: imageUrls.length + videoUrls.length,
+            image_urls: normalizedImages,
+            video_urls: normalizedVideos,
+            media_count: normalizedImages.length + normalizedVideos.length,
             quoted_tweet: quotedTweet,
             comments,
             source_url: this.url

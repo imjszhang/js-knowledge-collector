@@ -311,6 +311,12 @@ node cli/cli.js collect <url>      Scrape, summarize, and save
   --no-summary                       Scrape only, skip AI summary
   --force                            Force re-scrape (ignore cache)
   --force-summary                    Force re-summarize only
+  --download-media                   Download images/videos to work_dir/scrape/<platform>/<id>/
+
+X.com scrape output (with --download-media):
+  work_dir/scrape/x_com/<user>_status_<id>/data.json   metadata + media_files[]
+  work_dir/scrape/x_com/<user>_status_<id>/photo_1.jpg  downloaded photos
+  work_dir/scrape/x_com/<user>_status_<id>/video_1.mp4  downloaded mp4 (m3u8 needs ffmpeg)
 
 node cli/cli.js search <keyword>   Search articles
   --source <platform>                Filter by platform

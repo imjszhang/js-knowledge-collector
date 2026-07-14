@@ -9,7 +9,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { scrape, detectRuleName } from './scraper.js';
+import { scrape, detectRuleName, resolveScrapePaths, downloadMediaForData, needsMediaDownload } from './scraper.js';
 import { summarize } from './summarizer.js';
 import Database from './database.js';
 import { sendToFlomo, sendFileToFlomo } from './flomo.js';
@@ -41,11 +41,20 @@ function shouldUseBrowser(url) {
 
 // ── 数据组装 ─────────────────────────────────────────────────────────
 
-function assembleData(scrapeResult, summaryResult, url) {
+function assembleData(scrapeResult, summaryResult, url, scrapeOutputPath) {
     const data = scrapeResult?.data || {};
     const title = data.title || '';
     const content = data.content || data.description || '';
-    const coverUrl = data.cover_url || data.image_urls?.[0] || '';
+    let coverUrl = data.cover_url || data.image_urls?.[0] || '';
+
+    const postDir = scrapeOutputPath ? path.dirname(scrapeOutputPath) : null;
+    const localPhoto = Array.isArray(data.media_files)
+        ? data.media_files.find((f) => f.ok && f.type === 'photo' && f.localPath)
+        : null;
+    if (localPhoto && postDir) {
+        coverUrl = path.join(postDir, localPhoto.localPath);
+    }
+
     const sourceUrl = data.source_url || url;
 
     return {
@@ -87,10 +96,19 @@ async function findCachedScrape(url) {
  * @returns {Promise<Object>} 收集结果
  */
 export async function collectUrl(url, options = {}) {
-    const { flomo = false, noSummary = false, force = false, forceSummary = false, dbPath } = options;
+    const {
+        flomo = false,
+        noSummary = false,
+        force = false,
+        forceSummary = false,
+        downloadMedia = false,
+        dbPath,
+    } = options;
 
     const { url: finalUrl, type: urlType } = convertUrl(url);
     log(`收集: ${finalUrl} (类型: ${urlType})`);
+
+    const { postDir } = resolveScrapePaths(finalUrl);
 
     // 1. 抓取
     let scrapeOutputPath;
@@ -103,15 +121,21 @@ export async function collectUrl(url, options = {}) {
     if (!scrapeOutputPath) {
         log('Step 1: 抓取网页内容 ...');
         const useBrowser = shouldUseBrowser(finalUrl);
-        const { outputPath, result } = await scrape(finalUrl, {
+        const scraped = await scrape(finalUrl, {
             useBrowser,
             useBrowserCookies: useBrowser,
+            downloadMedia,
         });
-        scrapeOutputPath = outputPath;
-        scrapeResult = result;
+        scrapeOutputPath = scraped.outputPath;
+        scrapeResult = scraped.result;
     } else {
         const raw = await fs.readFile(scrapeOutputPath, 'utf-8');
         scrapeResult = JSON.parse(raw);
+        if (downloadMedia && scrapeResult.data && needsMediaDownload(postDir, scrapeResult.data)) {
+            log('Step 1b: 补下载媒体文件 ...');
+            await downloadMediaForData(postDir, scrapeResult.data);
+            await fs.writeFile(scrapeOutputPath, JSON.stringify(scrapeResult, null, 2), 'utf-8');
+        }
     }
 
     // 2. AI 总结
@@ -126,7 +150,7 @@ export async function collectUrl(url, options = {}) {
     }
 
     // 3. 组装数据
-    const assembled = assembleData(scrapeResult, summaryResult, finalUrl);
+    const assembled = assembleData(scrapeResult, summaryResult, finalUrl, scrapeOutputPath);
     log(`Step 3: 数据组装完成 — ${assembled.title || '(无标题)'}`);
 
     // 4. 入库

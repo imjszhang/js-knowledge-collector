@@ -7,7 +7,7 @@
  *   node cli/cli.js <command> [options]
  *
  * Commands:
- *   collect <url|path> [--flomo] [--no-summary] [--force] [--force-summary]
+ *   collect <url|path> [--flomo] [--no-summary] [--force] [--force-summary] [--download-media]
  *     Auto-detects URL vs local file path. Supports md, txt, pdf, docx, html.
  *   collect-file <path> [--flomo] [--no-summary] [--force]
  *     Explicitly collect a local file (md/txt/pdf/docx/html).
@@ -67,6 +67,7 @@ async function cmdCollect(positional, flags) {
         noSummary: !!flags['no-summary'],
         force: !!flags.force,
         forceSummary: !!flags['force-summary'],
+        downloadMedia: !!flags['download-media'],
     });
     toJson(result);
 }

@@ -8,13 +8,18 @@
 import WebScraper from './web-scraper.js';
 import BrowserAutomation from './browser-automation.js';
 import { createExtension } from './browser-extensions/index.js';
+import {
+    applyMediaToData,
+    buildMediaItems,
+    mergeMediaUrls,
+    downloadMedia,
+    isMediaFileMissing,
+} from './media/index.js';
 import fs from 'node:fs/promises';
-import { existsSync, createWriteStream } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import https from 'node:https';
-import http from 'node:http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
@@ -121,24 +126,40 @@ async function getCookiesFromBrowser(url, browser) {
     return [];
 }
 
-// ── File download helper ────────────────────────────────────────────
+export function resolveScrapePaths(url) {
+    const ruleName = detectRuleName(url);
+    const categoryDir = getCategoryDir(ruleName);
+    const fileName = generateFileName(url);
+    const baseName = path.basename(fileName, '.json');
+    const postDir = path.join(PROJECT_ROOT, 'work_dir', 'scrape', categoryDir, baseName);
+    const outputPath = path.join(postDir, 'data.json');
+    return { ruleName, categoryDir, postDir, outputPath, baseName };
+}
 
-function downloadFile(url, filePath) {
-    return new Promise((resolve, reject) => {
-        const protocol = url.startsWith('https:') ? https : http;
-        const stream = createWriteStream(filePath);
-        protocol.get(url, (res) => {
-            if (res.statusCode === 301 || res.statusCode === 302) {
-                stream.close();
-                fs.unlink(filePath).catch(() => {});
-                return downloadFile(res.headers.location, filePath).then(resolve).catch(reject);
-            }
-            if (res.statusCode !== 200) { stream.close(); fs.unlink(filePath).catch(() => {}); return reject(new Error(`HTTP ${res.statusCode}`)); }
-            res.pipe(stream);
-            stream.on('finish', () => { stream.close(); resolve(filePath); });
-            stream.on('error', (e) => { stream.close(); fs.unlink(filePath).catch(() => {}); reject(e); });
-        }).on('error', (e) => { stream.close(); fs.unlink(filePath).catch(() => {}); reject(e); });
+export async function downloadMediaForData(postDir, data, opts = {}) {
+    applyMediaToData(data);
+    const items = buildMediaItems({
+        image_urls: data.image_urls,
+        video_urls: data.video_urls,
     });
+    if (items.length === 0) {
+        data.media_files = [];
+        return data.media_files;
+    }
+    const logger = opts.logger || log;
+    data.media_files = await downloadMedia(items, postDir, { logger });
+    return data.media_files;
+}
+
+export function needsMediaDownload(postDir, data) {
+    const items = buildMediaItems({
+        image_urls: data?.image_urls,
+        video_urls: data?.video_urls,
+    });
+    if (items.length === 0) return false;
+    const files = data?.media_files;
+    if (!Array.isArray(files) || files.length === 0) return true;
+    return files.some((entry) => isMediaFileMissing(postDir, entry));
 }
 
 // ── 输出辅助 ────────────────────────────────────────────────────────
@@ -228,8 +249,9 @@ async function scrapeVideo(url, ruleName) {
  * @param {boolean} [options.useBrowserCookies=false]
  * @param {string}  [options.browserServer]
  * @param {number}  [options.maxCommentPages=0]
- * @param {boolean} [options.downloadVideos=false]
- * @returns {Promise<{outputPath: string, result: Object, category: string}>}
+ * @param {boolean} [options.downloadMedia=false]
+ * @param {boolean} [options.downloadVideos=false] 已废弃，等同 downloadMedia
+ * @returns {Promise<{outputPath: string, result: Object, category: string, postDir: string}>}
  */
 export async function scrape(url, options = {}) {
     const ruleName = detectRuleName(url);
@@ -243,14 +265,12 @@ export async function scrape(url, options = {}) {
         useBrowserCookies = false,
         browserServer = null,
         maxCommentPages = 0,
+        downloadMedia: downloadMediaOpt = false,
         downloadVideos = false,
     } = options;
 
-    const categoryDir = getCategoryDir(ruleName);
-    const fileName = generateFileName(url);
-    const baseName = path.basename(fileName, '.json');
-    const postDir = path.join(PROJECT_ROOT, 'work_dir', 'scrape', categoryDir, baseName);
-    const outputPath = path.join(postDir, 'data.json');
+    const downloadMediaFlag = downloadMediaOpt || downloadVideos;
+    const { categoryDir, postDir, outputPath } = resolveScrapePaths(url);
 
     if (!existsSync(postDir)) await fs.mkdir(postDir, { recursive: true });
 
@@ -290,13 +310,12 @@ export async function scrape(url, options = {}) {
             result = await scraper.scrapeFromHtml(htmlContent);
 
             if (extraData && result.data) {
-                for (const key of ['video_urls', 'image_urls']) {
-                    if (extraData[key]?.length) {
-                        if (!result.data[key]?.length) result.data[key] = extraData[key];
-                        else { const s = new Set(result.data[key]); extraData[key].forEach(u => { if (!s.has(u)) result.data[key].push(u); }); }
+                mergeMediaUrls(result.data, extraData);
+                for (const key in extraData) {
+                    if (key !== 'video_urls' && key !== 'image_urls' && !result.data[key]) {
+                        result.data[key] = extraData[key];
                     }
                 }
-                for (const key in extraData) { if (key !== 'video_urls' && key !== 'image_urls' && !result.data[key]) result.data[key] = extraData[key]; }
             }
         } else {
             const scraper = new WebScraper(url, customUrlRules, { maxCommentPages });
@@ -308,16 +327,16 @@ export async function scrape(url, options = {}) {
 
     if (result.error !== '0') throw new Error(result.detail || 'scrape failed');
 
+    if (result.data) applyMediaToData(result.data);
+
     await fs.writeFile(outputPath, JSON.stringify(result, null, 2), 'utf-8');
     log(`抓取结果已保存: ${outputPath}`);
 
-    if (downloadVideos && result.data?.video_urls?.length) {
-        for (let i = 0; i < result.data.video_urls.length; i++) {
-            const ext = result.data.video_urls[i].includes('.webm') ? '.webm' : '.mp4';
-            const vf = path.join(postDir, `video${result.data.video_urls.length > 1 ? '_' + (i + 1) : ''}${ext}`);
-            try { await downloadFile(result.data.video_urls[i], vf); log(`视频已下载: ${vf}`); } catch (e) { log(`视频下载失败: ${e.message}`); }
-        }
+    if (downloadMediaFlag && result.data) {
+        await downloadMediaForData(postDir, result.data);
+        await fs.writeFile(outputPath, JSON.stringify(result, null, 2), 'utf-8');
+        log(`媒体清单已回写: ${outputPath}`);
     }
 
-    return { outputPath, result, category: categoryDir };
+    return { outputPath, result, category: categoryDir, postDir };
 }

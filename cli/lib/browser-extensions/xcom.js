@@ -7,6 +7,7 @@
  */
 
 import BaseScrapeExtension from './common.js';
+import { normalizeVideoUrls } from '../media/twimg.js';
 
 class XComScrapeExtension extends BaseScrapeExtension {
   constructor(browser) {
@@ -79,7 +80,7 @@ class XComScrapeExtension extends BaseScrapeExtension {
     
     // Status 类型：提取视频
     if (isStatus && tweetId) {
-      const videoUrls = await this._extractVideoUrls(tabId, tweetId);
+      const videoUrls = normalizeVideoUrls(await this._extractVideoUrls(tabId, tweetId));
       
       if (videoUrls.length > 0) {
         this.logger.info(`[x_com] ✓ 提取到 ${videoUrls.length} 个视频 URL`);
@@ -332,20 +333,7 @@ class XComScrapeExtension extends BaseScrapeExtension {
       ]);
       
       if (resourceUrls && resourceUrls.length > 0) {
-        // 筛选最佳质量
-        const m3u8Urls = resourceUrls.filter(url => 
-          url.includes('.m3u8') && !url.includes('avc1') && !url.includes('mp4a'));
-        const mp4Urls = resourceUrls.filter(url => 
-          url.includes('.mp4') && (url.includes('1080') || url.includes('720')));
-        const allMp4Urls = resourceUrls.filter(url => url.includes('.mp4'));
-        
-        let selectedUrls = [...new Set([...m3u8Urls])];
-        if (mp4Urls.length > 0) {
-          selectedUrls = [...new Set([...selectedUrls, ...mp4Urls])];
-        } else if (allMp4Urls.length > 0) {
-          selectedUrls = [...new Set([...selectedUrls, ...allMp4Urls])];
-        }
-        
+        const selectedUrls = normalizeVideoUrls(resourceUrls);
         if (selectedUrls.length > 0) {
           this.logger.info(`[x_com] ✓ 从 Performance API 提取到 ${selectedUrls.length} 个视频 URL`);
           return selectedUrls;
@@ -552,25 +540,7 @@ class XComScrapeExtension extends BaseScrapeExtension {
       ]);
       
       if (apiResult && apiResult.success && apiResult.videoUrls && apiResult.videoUrls.length > 0) {
-        // 筛选最佳质量
-        const m3u8Urls = apiResult.videoUrls.filter(u => 
-          u.includes('.m3u8') && !u.includes('avc1') && !u.includes('mp4a'));
-        const mp4Urls = apiResult.videoUrls.filter(u => u.includes('.mp4'));
-        
-        // 按分辨率排序 MP4
-        const sortedMp4 = mp4Urls.sort((a, b) => {
-          const getResolution = (url) => {
-            const match = url.match(/(\d+)x(\d+)/);
-            return match ? parseInt(match[1]) * parseInt(match[2]) : 0;
-          };
-          return getResolution(b) - getResolution(a);
-        });
-        
-        const selectedUrls = [...m3u8Urls];
-        if (sortedMp4.length > 0) {
-          selectedUrls.push(sortedMp4[0]);
-        }
-        
+        const selectedUrls = normalizeVideoUrls(apiResult.videoUrls);
         if (selectedUrls.length > 0) {
           this.logger.info(`[x_com] ✓ 从 GraphQL API 提取到 ${selectedUrls.length} 个视频 URL`);
           return selectedUrls;

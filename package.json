@@ -12,7 +12,8 @@
     "dev": "node cli/cli.js serve",
     "build": "node build/build.js",
     "preview": "npx serve docs -l 3000",
-    "cli": "node cli/cli.js"
+    "cli": "node cli/cli.js",
+    "test": "node --test cli/lib/media/*.test.js"
   },
   "dependencies": {
     "@js-eyes/client-sdk": "file:../js-eyes/packages/client-sdk",
