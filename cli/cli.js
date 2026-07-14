@@ -13,11 +13,12 @@
  *     Explicitly collect a local file (md/txt/pdf/docx/html).
  *   collect-dir <dir>  [--recursive] [--include <exts>] [--flomo] [--no-summary]
  *     Batch collect files from a directory.
- *   search <keyword> [--source <platform>]
+ *   search <keyword> [--source <platform>] [--page N] [--per-page N] [--sort <field>]
  *   list             [--source <platform>] [--page N] [--per-page N] [--sort <field>]
+ *   get <id>         [--format json|md]
  *   stats
  *   delete <id>
- *   export           [--format prism|json|md] [--force]
+ *   export           [--format prism|json|md] [--force] [--id <id>]
  *   build            [--dry-run]
  *   serve            [--port <N>]
  *   commit           [--message "..."]
@@ -156,7 +157,31 @@ async function cmdSearch(positional, flags) {
         toStderr('Error: search requires a keyword argument.');
         process.exit(1);
     }
-    toJson(await searchArticles(keyword, { source: flags.source }));
+    toJson(await searchArticles(keyword, {
+        source: flags.source,
+        page: flags.page ? parseInt(flags.page, 10) : undefined,
+        perPage: flags['per-page'] ? parseInt(flags['per-page'], 10) : undefined,
+        sort: flags.sort,
+    }));
+}
+
+async function cmdGet(positional, flags) {
+    const id = positional[0];
+    if (!id) {
+        toStderr('Error: get requires an article ID argument.');
+        process.exit(1);
+    }
+    const record = await getArticle(id);
+    if (!record) {
+        toStderr(`Error: 文章不存在 (${id})`);
+        process.exit(1);
+    }
+    if (flags.format === 'md') {
+        const { articleToMarkdown } = await import('./lib/exporter.js');
+        process.stdout.write(articleToMarkdown(record) + '\n');
+        return;
+    }
+    toJson({ status: 'success', data: record });
 }
 
 async function cmdList(flags) {
@@ -186,6 +211,7 @@ async function cmdExport(flags) {
     toJson(await exportArticles({
         format: flags.format || 'json',
         force: !!flags.force,
+        id: flags.id,
     }));
 }
 
@@ -262,11 +288,12 @@ Usage:
   node cli/cli.js <command> [options]
 
 Commands:
-  collect <url>      Scrape, summarize, and save an article
+  collect <url|path> Scrape or parse, summarize, and save
     --flomo            Also send summary to Flomo
     --no-summary       Scrape only, skip AI summary
     --force            Force re-scrape (ignore cache)
     --force-summary    Force re-summarize only
+    --download-media   Download images/videos to scrape directory
 
   collect-file <path>  Collect a local file (md/txt/pdf/docx/html)
     --flomo            Also send summary to Flomo
@@ -282,12 +309,18 @@ Commands:
 
   search <keyword>   Search articles by keyword
     --source <plat>    Filter by platform (wechat|zhihu|xiaohongshu|...)
+    --page <N>         Page number (default 1)
+    --per-page <N>     Items per page (default 20)
+    --sort <field>     Sort field, prefix - for DESC (default -created)
 
   list               List articles
     --source <plat>    Filter by platform
     --page <N>         Page number (default 1)
     --per-page <N>     Items per page (default 20)
     --sort <field>     Sort field, prefix - for DESC (default -created)
+
+  get <id>           Get full article detail by ID
+    --format <fmt>     Output format: json (default) | md
 
   stats              Show collection statistics
 
@@ -296,6 +329,7 @@ Commands:
   export             Export articles
     --format <fmt>     Export format: prism|json|md (default json)
     --force            Full re-export (ignore incremental state)
+    --id <id>          Export a single article by ID
 
   build              Build static site + API to docs/
     --dry-run          Validate only
@@ -312,10 +346,13 @@ Commands:
 
 Examples:
   node cli/cli.js collect https://mp.weixin.qq.com/s/xxx --flomo
-  node cli/cli.js search "AI Agent"
+  node cli/cli.js search "AI Agent" --page 1
   node cli/cli.js list --source wechat --page 1
+  node cli/cli.js get abc123
+  node cli/cli.js get abc123 --format md
   node cli/cli.js stats
   node cli/cli.js delete abc123
+  node cli/cli.js export --format md --id abc123
   node cli/cli.js export --format prism
   node cli/cli.js sync`);
 }
@@ -330,7 +367,8 @@ async function main() {
         case 'collect-file':  await cmdCollectFile(positional, flags); break;
         case 'collect-dir':   await cmdCollectDir(positional, flags); break;
         case 'search':        await cmdSearch(positional, flags);  break;
-        case 'list':        await cmdList(flags);                break;
+        case 'list':          await cmdList(flags);                break;
+        case 'get':           await cmdGet(positional, flags);     break;
         case 'stats':       await cmdStats();                    break;
         case 'delete':      await cmdDelete(positional);         break;
         case 'export':      await cmdExport(flags);              break;

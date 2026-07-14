@@ -38,7 +38,7 @@ function htmlToText(html) {
     return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function articleToMarkdown(article) {
+export function articleToMarkdown(article) {
     const title = article.title || '(无标题)';
     const sourceUrl = article.source_url || '';
     const sections = [`# ${title}`, ''];
@@ -113,8 +113,13 @@ async function getAllArticles() {
  * @returns {Promise<Object>} 导出结果
  */
 export async function exportArticles(options = {}) {
-    const { format = 'json', force = false } = options;
-    const articles = await getAllArticles();
+    const { format = 'json', force = false, id } = options;
+    let articles = await getAllArticles();
+
+    if (id) {
+        articles = articles.filter(a => a.id === id);
+        if (!articles.length) throw new Error(`记录不存在: ${id}`);
+    }
 
     if (!articles.length) return { exported: 0, total: 0, format };
 
