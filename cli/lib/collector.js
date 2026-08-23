@@ -166,15 +166,22 @@ export async function collectUrl(url, options = {}) {
     }
 
     // 5. Flomo
+    let sentToFlomo = false;
+    let flomoError = null;
     if (flomo && summaryResult?.summaryDir) {
         log('Step 5: 发送摘要到 Flomo ...');
         try {
             const digestPath = path.join(summaryResult.summaryDir, 'digest.txt');
             if (existsSync(digestPath)) {
                 await sendFileToFlomo(digestPath, { prepend: '#概要\n\n' });
+                sentToFlomo = true;
                 log('Flomo 发送成功');
+            } else {
+                flomoError = 'digest.txt 不存在，跳过 Flomo 推送';
+                log(flomoError);
             }
         } catch (err) {
+            flomoError = err.message;
             log(`Flomo 发送失败: ${err.message}`);
         }
     }
@@ -187,7 +194,8 @@ export async function collectUrl(url, options = {}) {
         scrapeOutputPath,
         summaryDir: summaryResult?.summaryDir || null,
         hasSummary: !!summaryResult,
-        sentToFlomo: flomo && !!summaryResult,
+        sentToFlomo,
+        flomoError,
     };
 }
 
@@ -259,15 +267,22 @@ export async function collectFile(filePath, options = {}) {
     }
 
     // 5. Flomo
+    let sentToFlomo = false;
+    let flomoError = null;
     if (flomo && summaryResult?.summaryDir) {
         log('Step 5: 发送摘要到 Flomo ...');
         try {
             const digestPath = path.join(summaryResult.summaryDir, 'digest.txt');
             if (existsSync(digestPath)) {
                 await sendFileToFlomo(digestPath, { prepend: '#概要\n\n' });
+                sentToFlomo = true;
                 log('Flomo 发送成功');
+            } else {
+                flomoError = 'digest.txt 不存在，跳过 Flomo 推送';
+                log(flomoError);
             }
         } catch (err) {
+            flomoError = err.message;
             log(`Flomo 发送失败: ${err.message}`);
         }
     }
@@ -280,7 +295,8 @@ export async function collectFile(filePath, options = {}) {
         scrapeOutputPath: cachePath,
         summaryDir: summaryResult?.summaryDir || null,
         hasSummary: !!summaryResult,
-        sentToFlomo: flomo && !!summaryResult,
+        sentToFlomo,
+        flomoError,
     };
 }
 

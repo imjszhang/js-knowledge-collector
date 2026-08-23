@@ -56,6 +56,16 @@
         "default": "",
         "description": "Flomo Webhook URL（留空则不启用 Flomo 推送）"
       },
+      "defaultFlomo": {
+        "type": "boolean",
+        "default": true,
+        "description": "批处理入库时默认推送 Flomo（可用 flomo: false 关闭）"
+      },
+      "workspace": {
+        "type": "string",
+        "default": "",
+        "description": "OpenClaw workspace 路径（留空则从 openclaw.json 解析，用于 link-collector 队列目录）"
+      },
       "serverPort": {
         "type": "number",
         "default": 3000,
@@ -108,6 +118,16 @@
       "label": "Flomo Webhook",
       "placeholder": "https://flomoapp.com/iwh/...",
       "help": "Flomo 的 Webhook URL，留空则不推送",
+      "advanced": true
+    },
+    "defaultFlomo": {
+      "label": "默认推送 Flomo",
+      "help": "批处理入库（process-inbox / cron）时默认推送到 Flomo"
+    },
+    "workspace": {
+      "label": "Workspace 路径",
+      "placeholder": "D:/.openclaw/workspace",
+      "help": "link-collector 队列目录所在 workspace，留空自动解析",
       "advanced": true
     },
     "serverPort": {

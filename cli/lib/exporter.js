@@ -15,8 +15,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const EXPORTED_IDS_FILE = 'exported_ids.json';
 
-function resolveDbPath() {
-    return process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'data.db');
+function resolveDbPath(explicit) {
+    return explicit || process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'data.db');
 }
 
 // ── 工具函数 ─────────────────────────────────────────────────────────
@@ -90,8 +90,8 @@ function ensureUniquePath(dir, dateDir, slug) {
 
 // ── 查询全部文章 ────────────────────────────────────────────────────
 
-async function getAllArticles() {
-    const db = new Database(resolveDbPath());
+async function getAllArticles(dbPath) {
+    const db = new Database(resolveDbPath(dbPath));
     await db.connect();
     try {
         return await db.all(
@@ -113,8 +113,8 @@ async function getAllArticles() {
  * @returns {Promise<Object>} 导出结果
  */
 export async function exportArticles(options = {}) {
-    const { format = 'json', force = false, id } = options;
-    let articles = await getAllArticles();
+    const { format = 'json', force = false, id, dbPath } = options;
+    let articles = await getAllArticles(dbPath);
 
     if (id) {
         articles = articles.filter(a => a.id === id);

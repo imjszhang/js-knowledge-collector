@@ -27,10 +27,10 @@ class WechatScrapeExtension extends BaseScrapeExtension {
     return {
       selector: '#js_content, .rich_media_content',
       minContentLength: 80,
-      timeout: 10000,
+      timeout: 25000,
       checkInterval: 1000,
       maxCheckInterval: 3000,
-      maxChecks: 6
+      maxChecks: 12
     };
   }
 

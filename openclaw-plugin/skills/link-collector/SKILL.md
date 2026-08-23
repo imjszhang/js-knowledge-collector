@@ -1,32 +1,33 @@
 ---
 name: link-collector
-description: 收集用户发送的链接并排重入队，配合 cron 定时批量调用 knowledge_collect 入库到知识库。支持查看/修改/删除队列，支持即时入库。
+description: 收集用户发送的链接并排重入队，由 cron 运行 openclaw knowledge process-inbox 批处理入库。支持查看/修改/删除队列、优先入队。
 version: 1.0.0
 author: js-knowledge-collector
 ---
 
 # 链接收集器
 
-收集用户在对话中发送的链接，排重后写入队列文件，由 cron 定时批量调用 `knowledge_collect` 入库到知识库。
+收集用户在对话中发送的链接，排重后写入队列文件，由 cron 定时运行 `openclaw knowledge process-inbox` 批处理入库。
 
-## ⚠️ 核心约束：禁止在主会话中调用 knowledge_collect
+## 核心机制：knowledge_collect 自动入队（非阻塞）
 
-`knowledge_collect` 工具会调用 LLM 进行内容总结，单次调用可能耗时数十秒甚至数分钟。主会话的 session lane 是串行的，调用期间该会话的所有后续消息都会排队等待，导致机器人长时间无响应。
+`knowledge_collect` 工具已改为**仅入队**，不会在主会话中执行抓取或 LLM 总结，因此**不会阻塞**飞书 session lane。
 
 **规则**：
 
-- 收到链接时，**只做入队**（写入 `inbox.jsonl`），**绝对不要**调用 `knowledge_collect`
-- 即使用户说「立刻入库」「马上收藏」，也**只做入队并标记优先**，由 cron 隔离会话处理
-- `knowledge_collect` **只允许**在 cron 隔离会话（`sessionTarget: "isolated"`）中调用
+- 收到链接时，调用 `knowledge_collect`（工具内部写入 `inbox.jsonl`）
+- 即使用户说「立刻入库」「马上收藏」，调用 `knowledge_collect` 并传 `priority: true`
+- 实际抓取/总结由 cron command 任务 `link-collector-process` 运行 `openclaw knowledge process-inbox` 完成
+- 需要立即同步入库时，使用 CLI：`openclaw knowledge collect <url>`（仅人工调试，不在主会话 Agent 中调用）
 
 ## 触发条件
 
 | 场景 | 行为 |
 |------|------|
-| 用户消息中包含 URL | 自动触发 **收集流程**（仅入队，不调用 knowledge_collect） |
-| 用户说"立刻入库"/"马上收藏"/"现在就收"等 | 走 **优先入队** 流程（入队 + 标记 `priority: true`，cron 优先处理） |
+| 用户消息中包含 URL | 调用 `knowledge_collect` **入队** |
+| 用户说"立刻入库"/"马上收藏"/"现在就收"等 | `knowledge_collect` 入队 + `priority: true` |
 | 用户要求查看/修改/删除/清空队列 | 走 **队列管理** 流程 |
-| cron 隔离会话触发 | 走 **定时入库** 流程（唯一允许调用 knowledge_collect 的地方） |
+| cron command 触发 | `openclaw knowledge process-inbox` 批处理队列 |
 
 ## 文件布局
 
@@ -161,9 +162,9 @@ openclaw knowledge setup-collector
 
 ---
 
-## 4. 定时入库流程（cron 隔离会话）
+## 4. 定时入库流程（cron command 批处理）
 
-由 cron 任务 `link-collector-process` 触发（默认每 30 分钟），在隔离会话中执行。`maxConcurrentRuns: 1` 保证同时只有一个实例运行，上一轮未完成时新触发自动跳过。
+由 cron 任务 `link-collector-process` 触发（默认每 30 分钟），执行 `openclaw knowledge process-inbox`（**非 Agent 会话**，空队列 stdout 输出 `NO_REPLY` 不推送通知）。
 
 ### 步骤 1：确定处理批次
 
@@ -188,7 +189,7 @@ rename 是原子操作，轮转后新链接写入新的 inbox，与 batch 处理
 1. **跳过非待处理项**：status 不是 `pending` 和 `failed` 的直接跳过。
 2. **知识库排重**：调用 `knowledge_search` 按 URL 查询。
    - 已入库 → 将 status 更新为 `skipped`，继续下一条。
-3. **入库**：调用 `knowledge_collect` 工具，参数 `url` 为链接地址；若 config 中 `defaultFlomo` 为 `true`，额外传递 `flomo: true`。
+3. **入库**：CLI 批处理内部调用 `collect()`；若 config 中 `defaultFlomo` 为 `true` 或条目 `flomo: true`，则推送 Flomo。
 4. **结果处理**：
    - 成功 → status 更新为 `done`，记录 `processed_at`。
    - 失败且 `retries < 3` → 将该条目追加回 `.openclaw/link-collector/inbox.jsonl`（retries + 1，记录 last_error），等待下次 cron 重试。
@@ -199,8 +200,8 @@ rename 是原子操作，轮转后新链接写入新的 inbox，与 batch 处理
 
 1. 将处理完的 batch 文件移至 `.openclaw/link-collector/archive/` 目录。
 2. 统计本次处理结果：成功 N 条、失败（已回队列）N 条、永久失败 N 条、跳过（已入库）N 条。
-3. 如果以上四项总数均为 0（即队列为空，无任何待处理条目），**静默退出，不调用 message 工具，不产生任何输出**。
-4. 否则，使用 `message` 工具发送处理摘要到飞书（`action: "send"`, `channel: "feishu"`），格式如下：
+3. 如果以上四项总数均为 0（即队列为空，无任何待处理条目），CLI 输出 `NO_REPLY`，cron **不推送**飞书通知。
+4. 否则，cron `--announce` 将 stdout 摘要投递到飞书（`delivery.to` 在 setup-collector 中配置）。
 
 ```
 📦 链接入库完成（成功 N | 跳过 N | 回队列 N | 永久失败 N）

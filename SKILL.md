@@ -196,7 +196,7 @@ When performing an operation, always prefer the highest-priority method availabl
 
 | Scenario | Preferred | Fallback | Last Resort |
 |----------|-----------|----------|-------------|
-| Collect a URL | `knowledge_collect` | `openclaw knowledge collect <url>` | `node cli/cli.js collect <url>` |
+| Collect a URL | `knowledge_collect`（自动入队，非阻塞） | `openclaw knowledge collect <url>` | `node cli/cli.js collect <url>` |
 | Search articles | `knowledge_search` | `openclaw knowledge search <kw>` | `node cli/cli.js search <kw>` |
 | List articles | `knowledge_list` | `openclaw knowledge list` | `node cli/cli.js list` |
 | View article | `knowledge_get` | — | `node cli/cli.js list` (no direct get in CLI) |
@@ -214,9 +214,10 @@ When performing an operation, always prefer the highest-priority method availabl
 
 ### "Collect this URL for me"
 
-1. **Plugin mode (main session)**: do NOT call `knowledge_collect` directly — it blocks the session lane. Instead, queue the URL via the link-collector skill (append to `inbox.jsonl`). Cron will process it.
-2. **Plugin mode (isolated session / cron)**: `knowledge_collect` with the URL.
-3. **Standalone mode**: `node cli/cli.js collect <url>`
+1. **Plugin mode (Agent)**: call `knowledge_collect` — it enqueues instantly without blocking the session.
+2. **Priority**: pass `priority: true` when user asks for immediate collection.
+3. **Immediate sync (debug)**: `openclaw knowledge collect <url>` from terminal (not in main Agent session).
+4. **Standalone mode**: `node cli/cli.js collect <url>`
 
 ### "Cron doesn't seem to be running"
 
@@ -282,7 +283,7 @@ The OpenClaw plugin wraps all CLI functionality as AI tools and HTTP routes, add
 
 | Tool | Description |
 |------|-------------|
-| `knowledge_collect` | Scrape URL → AI summarize → store in knowledge base. Supports WeChat, Zhihu, Xiaohongshu, X.com, etc. |
+| `knowledge_collect` | 将 URL/本地路径加入收集队列（非阻塞）；批处理由 cron `process-inbox` 完成 |
 | `knowledge_search` | Search articles by keyword, optionally filter by platform |
 | `knowledge_list` | List articles with pagination, platform filter, and sorting |
 | `knowledge_get` | Get full article detail by ID (content, summary, recommendation) |
@@ -300,7 +301,8 @@ openclaw knowledge list [--source <plat>]        List articles
 openclaw knowledge search <keyword>              Search articles
 openclaw knowledge collect <url> [--flomo]       Scrape + summarize + store
 openclaw knowledge sync [--force] [--dir <path>] Sync to memory system
-openclaw knowledge setup-collector [--every N]   Configure cron for link queue
+openclaw knowledge process-inbox                 Process link queue (cron entry)
+openclaw knowledge setup-collector [--every N]   Configure command cron for link queue
 ```
 
 ### Standalone CLI Mode
@@ -551,7 +553,7 @@ Knowledge Collector includes bundled skills in `openclaw-plugin/skills/`:
 |-------|-------------|
 | **link-collector** | Queue-based link collection — enqueue URLs from chat, cron batch processing with crash recovery and retry |
 
-> **Design principle**: The link-collector skill separates collection (fast, non-blocking enqueue in main session) from processing (slow, LLM-dependent pipeline in isolated cron session), ensuring the main conversation is never blocked by long-running scrape+summarize operations.
+> **Design principle**: The link-collector skill separates collection (fast, non-blocking enqueue via `knowledge_collect` tool) from processing (slow scrape+summarize pipeline via `openclaw knowledge process-inbox` command cron), ensuring the main conversation is never blocked.
 
 ## Links
 

@@ -61,9 +61,24 @@ import { fileURLToPath } from 'url';
 
 const fsPromises = fs.promises;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
-// yt-dlp 可执行文件路径（在 .venv 虚拟环境中）
-const YTDLP_PATH = path.join(__dirname, '..', '.venv', 'Scripts', 'yt-dlp.exe');
+const YTDLP_CANDIDATES = [
+  path.join(__dirname, '..', '.venv', 'Scripts', 'yt-dlp.exe'),
+  path.join(__dirname, '..', '.venv', 'bin', 'yt-dlp'),
+  path.join(PROJECT_ROOT, '.venv', 'Scripts', 'yt-dlp.exe'),
+  path.join(PROJECT_ROOT, '.venv', 'bin', 'yt-dlp'),
+];
+
+export const YTDLP_INSTALL_HINT =
+  '未找到 yt-dlp。请安装: pip install yt-dlp（或在项目根目录 .venv 中安装）';
+
+function resolveYtDlpPath() {
+  for (const candidate of YTDLP_CANDIDATES) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 // 解析命令行参数
 function parseArgs() {
@@ -174,12 +189,8 @@ function extractVideoId(url) {
  * @returns {Promise<boolean>}
  */
 async function checkYtDlp() {
-    // 检查 .venv 中的 yt-dlp
-    if (fs.existsSync(YTDLP_PATH)) {
-        return true;
-    }
-    
-    // 检查系统 PATH 中的 yt-dlp
+    if (resolveYtDlpPath()) return true;
+
     return new Promise((resolve) => {
         const proc = spawn('yt-dlp', ['--version'], { shell: false, stdio: 'ignore' });
         proc.on('close', (code) => {
@@ -191,15 +202,17 @@ async function checkYtDlp() {
     });
 }
 
-/**
- * 获取 yt-dlp 命令路径
- * @returns {string}
- */
 function getYtDlpCommand() {
-    if (fs.existsSync(YTDLP_PATH)) {
-        return YTDLP_PATH;
-    }
+    const resolved = resolveYtDlpPath();
+    if (resolved) return resolved;
     return 'yt-dlp';
+}
+
+function formatYtDlpSpawnError(error) {
+    if (error?.code === 'ENOENT') {
+        return `${YTDLP_INSTALL_HINT}（原始错误: ${error.message}）`;
+    }
+    return error?.message || String(error);
 }
 
 /**
@@ -348,7 +361,7 @@ async function getVideoInfo(url, options = {}) {
         });
         
         proc.on('error', (error) => {
-            reject(new Error(`启动 yt-dlp 失败: ${error.message}`));
+            reject(new Error(`启动 yt-dlp 失败: ${formatYtDlpSpawnError(error)}`));
         });
     });
 }
@@ -780,7 +793,7 @@ async function downloadVideo(url, outputPath, options = {}) {
         });
         
         proc.on('error', (error) => {
-            reject(new Error(`启动 yt-dlp 失败: ${error.message}`));
+            reject(new Error(`启动 yt-dlp 失败: ${formatYtDlpSpawnError(error)}`));
         });
     });
 }
@@ -1118,7 +1131,7 @@ async function main() {
                         });
                         
                         proc.on('error', (error) => {
-                            reject(new Error(`启动 yt-dlp 失败: ${error.message}`));
+                            reject(new Error(`启动 yt-dlp 失败: ${formatYtDlpSpawnError(error)}`));
                         });
                     });
                     

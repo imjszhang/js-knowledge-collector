@@ -116,6 +116,21 @@ export async function syncToMemory({ dbPath, outputDir, force = false }) {
       }
     }
 
+    // 清理 sync-state 未跟踪的孤儿 article-*.md
+    try {
+      for (const name of fs.readdirSync(outputDir)) {
+        if (!name.startsWith('article-') || !name.endsWith('.md')) continue;
+        const id = name.slice('article-'.length, -'.md'.length);
+        if (!dbIdSet.has(id)) {
+          try {
+            fs.unlinkSync(path.join(outputDir, name));
+            deleted++;
+            if (state.articles[id]) delete state.articles[id];
+          } catch {}
+        }
+      }
+    } catch {}
+
     state.lastSyncAt = new Date().toISOString();
     saveSyncState(outputDir, state);
 

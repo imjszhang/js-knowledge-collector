@@ -294,9 +294,12 @@ export async function scrape(url, options = {}) {
             log('使用浏览器自动化抓取 ...');
             const extension = createExtension(ruleName, browser);
             const contentWaitConfig = extension?.getContentWaitConfig(url) || { selector: 'body', minContentLength: 100, timeout: 15000 };
+            const isWechat = ruleName === 'wechat' || ruleName === 'wechat_old';
 
             const scrapeResult = await browser.scrapePage(url, {
-                reuseTab: true, closeAfter: false, loadTimeout: 30000,
+                reuseTab: true, closeAfter: false,
+                loadTimeout: isWechat ? 60000 : 30000,
+                settleAfterLoadMs: isWechat ? 5000 : 0,
                 contentWait: contentWaitConfig,
                 beforeGetHtml: extension ? (tabId, u) => extension.prepare(tabId, u) : null,
             });

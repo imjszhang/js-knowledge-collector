@@ -309,6 +309,7 @@ class BrowserAutomation {
       reuseTab = true,
       closeAfter = true,
       loadTimeout = 30000,
+      settleAfterLoadMs = 0,
       contentWait = null,
       beforeGetHtml = null,
       afterGetHtml = null,
@@ -344,10 +345,16 @@ class BrowserAutomation {
         try {
           await this.waitForTabReady(tabId, { timeout: loadTimeout });
           this.logger.info('页面加载完成');
+          if (settleAfterLoadMs > 0) {
+            this.logger.info(`页面 settle 等待 ${settleAfterLoadMs}ms ...`);
+            await new Promise(r => setTimeout(r, settleAfterLoadMs));
+          }
         } catch (error) {
           this.logger.warn(`等待页面加载失败，继续执行: ${error.message}`);
           await new Promise(r => setTimeout(r, 3000));
         }
+      } else if (settleAfterLoadMs > 0) {
+        await new Promise(r => setTimeout(r, Math.min(settleAfterLoadMs, 2000)));
       }
 
       // 3. 等待内容就绪（可选）
@@ -361,10 +368,27 @@ class BrowserAutomation {
         await beforeGetHtml(tabId, finalUrl);
       }
 
-      // 5. 获取 HTML
+      // 5. 获取 HTML（正文过短时重试一次）
       this.logger.info('获取页面 HTML 内容...');
-      const html = await this.getTabHtml(tabId);
+      let html = await this.getTabHtml(tabId);
       this.logger.info(`获取 HTML 成功: ${html.length} 字符`);
+
+      if (contentWait?.minContentLength && html.length < contentWait.minContentLength * 4) {
+        this.logger.warn('HTML 过短，等待后重试获取 ...');
+        await new Promise(r => setTimeout(r, 4000));
+        if (contentWait) {
+          try {
+            await this.waitForContentReady(tabId, {
+              ...contentWait,
+              timeout: Math.max(contentWait.timeout || 15000, 10000),
+            });
+          } catch (err) {
+            this.logger.warn(`重试内容等待失败: ${err.message}`);
+          }
+        }
+        html = await this.getTabHtml(tabId);
+        this.logger.info(`重试后 HTML: ${html.length} 字符`);
+      }
 
       // 6. 后置钩子
       let extraData = {};

@@ -84,6 +84,10 @@ export default function register(api) {
 
   const pluginCfg = api.pluginConfig ?? {};
   const collectorDbPath = resolveCollectorDbPath(pluginCfg);
+  const defaultFlomo = pluginCfg.defaultFlomo ?? true;
+  const collectorWorkspace = pluginCfg.workspace
+    ? nodePath.resolve(pluginCfg.workspace)
+    : undefined;
 
   const serverPort = pluginCfg.serverPort || 3000;
   const autoStart = pluginCfg.autoStartServer ?? false;
@@ -347,15 +351,35 @@ export default function register(api) {
       name: "knowledge_collect",
       label: "Knowledge: Collect",
       description:
-        "从 URL 收集知识文章。完整流程：抓取网页内容 → AI 总结（概要/摘要/推荐理由）→ 保存到知识库。" +
-        "支持微信公众号、知乎、小红书、即刻、X.com、Reddit、Bilibili、YouTube、GitHub 及通用网页。",
+        "将 URL 或本地文件路径加入知识收集队列（非阻塞）。支持微信公众号、知乎、小红书、即刻、X.com、Reddit、Bilibili、YouTube、GitHub、通用网页及本地 PDF/DOCX/MD/HTML。" +
+        "实际抓取与 AI 总结由 cron 批处理（openclaw knowledge process-inbox）异步完成。",
       parameters: {
         type: "object",
         properties: {
-          url: { type: "string", description: "要收集的文章 URL" },
+          url: {
+            type: "string",
+            description: "要收集的文章 URL（与 path 二选一）",
+          },
+          path: {
+            type: "string",
+            description: "本地文件路径（PDF/DOCX/MD/HTML/TXT，与 url 二选一）",
+          },
+          priority: {
+            type: "boolean",
+            description: "优先入库（默认 false，true 时 cron 下次批处理优先处理）",
+          },
           flomo: {
             type: "boolean",
-            description: "是否同时发送摘要到 Flomo（默认 false）",
+            description: "入库后是否推送到 Flomo（默认跟随插件 defaultFlomo 配置）",
+          },
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            description: "标签列表（可选）",
+          },
+          note: {
+            type: "string",
+            description: "备注（可选）",
           },
           noSummary: {
             type: "boolean",
@@ -374,33 +398,45 @@ export default function register(api) {
             description: "下载推文/页面中的图片与视频到 scrape 目录（默认 false）",
           },
         },
-        required: ["url"],
       },
       async execute(_toolCallId, params) {
         try {
-          const { collect } = await import("../cli/lib/collector.js");
-          const result = await collect(params.url, {
+          const { enqueueLink } = await import("../cli/lib/link-queue.js");
+          const target = params.path || params.url;
+          if (!target) {
+            return textResult("请提供 url 或 path 参数。");
+          }
+
+          const flomo = params.flomo === undefined ? null : !!params.flomo;
+          const result = await enqueueLink(target, {
+            workspace: collectorWorkspace,
             dbPath: collectorDbPath,
-            flomo: params.flomo ?? false,
-            noSummary: params.noSummary ?? false,
-            force: params.force ?? false,
-            forceSummary: params.forceSummary ?? false,
+            priority: !!params.priority,
+            tags: Array.isArray(params.tags) ? params.tags : [],
+            autoTags: !Array.isArray(params.tags) || params.tags.length === 0,
+            note: params.note || "",
+            flomo,
+            noSummary: !!params.noSummary,
+            force: !!params.force,
+            forceSummary: !!params.forceSummary,
             downloadMedia: params.downloadMedia ?? false,
           });
 
-          if (memorySyncEnabled) runMemorySync();
+          if (result.status === "already_in_db") {
+            return textResult(
+              `该内容已在知识库中。\n  标题: ${result.title || "(无标题)"}\n  ID: ${result.recordId}\n  来源: ${result.target}`,
+            );
+          }
+          if (result.status === "already_queued") {
+            return textResult(`该链接已在队列中，等待 cron 批处理入库。\n  来源: ${result.target}`);
+          }
 
-          const lines = [
-            `✓ 收集成功`,
-            `  标题: ${result.title || "(无标题)"}`,
-            `  URL: ${result.url}`,
-            `  记录 ID: ${result.record_id}`,
-            `  AI 总结: ${result.hasSummary ? "是" : "否"}`,
-            `  Flomo 推送: ${result.sentToFlomo ? "是" : "否"}`,
-          ];
-          return textResult(lines.join("\n"));
+          const priorityHint = result.priority ? "（已标记优先，cron 将优先处理）" : "";
+          return textResult(
+            `✓ 已加入收集队列${priorityHint}\n  来源: ${result.target}\n  说明: 将由定时批处理异步抓取、总结并入库，不会阻塞当前会话。`,
+          );
         } catch (err) {
-          return textResult(`收集失败: ${err.message}`);
+          return textResult(`入队失败: ${err.message}`);
         }
       },
     },
@@ -623,6 +659,7 @@ export default function register(api) {
           const result = await exportArticles({
             format: params.format || "json",
             force: params.force ?? false,
+            dbPath: collectorDbPath,
           });
           return jsonResult(result);
         } catch (err) {
@@ -705,27 +742,56 @@ export default function register(api) {
         });
 
       knowledge
-        .command("collect <url>")
-        .description("收集一篇文章（抓取 + AI 总结 + 入库）")
-        .option("--flomo", "同时推送到 Flomo")
+        .command("collect <input>")
+        .description("立即收集一篇文章或本地文件（抓取 + AI 总结 + 入库，不经过队列）")
+        .option("--flomo", "推送到 Flomo（默认跟随 defaultFlomo 配置）")
+        .option("--no-flomo", "不推送到 Flomo")
         .option("--no-summary", "跳过 AI 总结")
         .option("--force", "强制重新抓取")
         .option("--download-media", "下载页面媒体到 scrape 目录")
-        .action(async (url, opts) => {
+        .action(async (input, opts) => {
           try {
             const { collect } = await import("../cli/lib/collector.js");
-            const result = await collect(url, {
+            const flomo = opts.noFlomo
+              ? false
+              : (opts.flomo ? true : defaultFlomo);
+            const result = await collect(input, {
               dbPath: collectorDbPath,
-              flomo: !!opts.flomo,
+              flomo,
               noSummary: !!opts.noSummary,
               force: !!opts.force,
               downloadMedia: !!opts.downloadMedia,
             });
+            if (memorySyncEnabled) await runMemorySync();
             console.log(`\n✓ 收集成功: ${result.title || "(无标题)"}`);
             console.log(`  记录 ID: ${result.record_id}`);
-            console.log(`  URL: ${result.url}\n`);
+            console.log(`  URL: ${result.url}`);
+            if (result.flomoError) console.log(`  Flomo: 推送失败 — ${result.flomoError}`);
+            else console.log(`  Flomo 推送: ${result.sentToFlomo ? "是" : "否"}`);
+            console.log("");
           } catch (err) {
             console.error(`收集失败: ${err.message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      knowledge
+        .command("process-inbox")
+        .description("处理 link-collector 队列（cron 批处理入口；空队列输出 NO_REPLY）")
+        .action(async () => {
+          try {
+            const { processInbox } = await import("../cli/lib/link-queue.js");
+            await processInbox({
+              workspace: collectorWorkspace,
+              dbPath: collectorDbPath,
+              defaultFlomo,
+              memorySyncEnabled,
+              memorySyncDir,
+              onCollected: () => runMemorySync(),
+            });
+          } catch (err) {
+            console.error(`process-inbox 失败: ${err.message}`);
+            process.exitCode = 1;
           }
         });
       knowledge
@@ -757,14 +823,16 @@ export default function register(api) {
 
       knowledge
         .command("setup-collector")
-        .description("配置链接收集器的 cron 定时任务（定时批量入库队列中的链接）")
+        .description("配置链接收集器的 cron 定时任务（command 批处理，空队列静默）")
         .option("--every <minutes>", "执行间隔（分钟）", "30")
         .option("--tz <timezone>", "时区（IANA）", "Asia/Shanghai")
+        .option("--to <feishuOpenId>", "飞书通知目标 Open ID", "ou_812340c1a43cb8c7b173fb1d569553a2")
         .option("--remove", "移除定时任务")
         .action(async (opts) => {
           const JOB_NAME = "link-collector-process";
           const openclawBin = process.argv[0];
           const openclawEntry = process.argv[1];
+          const FEISHU_TO = opts.to;
 
           function runOcCron(args) {
             return execFileSync(openclawBin, [openclawEntry, "cron", ...args], {
@@ -774,10 +842,11 @@ export default function register(api) {
           }
 
           try {
+            const listJson = runOcCron(["list", "--json"]);
+            const { jobs } = JSON.parse(listJson);
+            const existing = jobs.find((j) => j.name === JOB_NAME);
+
             if (opts.remove) {
-              const listJson = runOcCron(["list", "--json"]);
-              const { jobs } = JSON.parse(listJson);
-              const existing = jobs.find((j) => j.name === JOB_NAME);
               if (!existing) {
                 console.log(`\n  未找到名为 "${JOB_NAME}" 的定时任务，无需移除。\n`);
                 return;
@@ -787,13 +856,9 @@ export default function register(api) {
               return;
             }
 
-            const listJson = runOcCron(["list", "--json"]);
-            const { jobs } = JSON.parse(listJson);
-            const existing = jobs.find((j) => j.name === JOB_NAME);
             if (existing) {
-              console.log(`\n  定时任务 "${JOB_NAME}" 已存在 (${existing.id})。`);
-              console.log(`  如需重新配置，请先执行: openclaw knowledge setup-collector --remove\n`);
-              return;
+              runOcCron(["rm", existing.id]);
+              console.log(`  已移除旧任务 "${JOB_NAME}" (${existing.id})，准备重建为 command 任务 ...`);
             }
 
             const minutes = parseInt(opts.every, 10);
@@ -803,26 +868,37 @@ export default function register(api) {
             }
 
             const cronExpr = `*/${minutes} * * * *`;
+            const commandArgv = JSON.stringify([
+              openclawBin,
+              openclawEntry,
+              "knowledge",
+              "process-inbox",
+            ]);
+
             const result = runOcCron([
               "add",
               "--name", JOB_NAME,
               "--cron", cronExpr,
               "--tz", opts.tz,
-              "--session", "isolated",
-              "--message", "执行 link-collector 技能的定时入库流程：检查并处理链接队列。",
-              "--thinking", "minimal",
+              "--command-argv", commandArgv,
+              "--announce",
+              "--channel", "feishu",
+              "--to", FEISHU_TO,
               "--json",
             ]);
 
             const job = JSON.parse(result);
-            console.log(`\n  ✓ 定时任务已创建`);
+            console.log(`\n  ✓ 定时任务已创建（command 批处理）`);
             console.log(`    名称: ${job.name}`);
             console.log(`    ID:   ${job.id}`);
             console.log(`    调度: 每 ${minutes} 分钟`);
-            console.log(`    时区: ${opts.tz}\n`);
+            console.log(`    时区: ${opts.tz}`);
+            console.log(`    命令: openclaw knowledge process-inbox`);
+            console.log(`    通知: 飞书 ${FEISHU_TO}（空队列 NO_REPLY 不推送）\n`);
           } catch (err) {
             console.error(`  配置失败: ${err.message}`);
             if (err.stderr) console.error(err.stderr);
+            process.exitCode = 1;
           }
         });
     },
