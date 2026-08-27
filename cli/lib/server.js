@@ -175,9 +175,9 @@ export async function startServer(options = {}) {
     const cfg = resolveDbConfig(storeOptions);
 
     if (cfg.mode === 'local' && !fs.existsSync(cfg.dbPath)) {
-        log(`Error: 数据库不存在 (${cfg.dbPath})`);
-        log('请先运行 collect 命令收集文章，或设置 DB_PATH / remoteDb 环境变量');
-        process.exit(1);
+        const message = `数据库不存在 (${cfg.dbPath})。请先运行 collect，或设置 DB_PATH / remoteDb`;
+        log(`Error: ${message}`);
+        throw new Error(message);
     }
 
     const db = await openDatabase(storeOptions);

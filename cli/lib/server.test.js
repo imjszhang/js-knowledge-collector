@@ -61,3 +61,11 @@ test('serve health, sourceUrl, and token-protected POST', async (t) => {
     assert.equal(listed.totalItems, 1);
     assert.equal(listed.data[0].title, 'A');
 });
+
+test('startServer throws when local db is missing (does not exit process)', async () => {
+    const missing = path.join(os.tmpdir(), `kc-missing-${Date.now()}`, 'no.db');
+    await assert.rejects(
+        () => startServer({ port: 18766, dbPath: missing, apiToken: 'tok' }),
+        /数据库不存在/,
+    );
+});
