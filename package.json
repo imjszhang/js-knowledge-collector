@@ -13,7 +13,7 @@
     "build": "node build/build.js",
     "preview": "npx serve docs -l 3000",
     "cli": "node cli/cli.js",
-    "test": "node --test cli/lib/media/*.test.js"
+    "test": "node --test cli/lib/database.test.js cli/lib/db-config.test.js cli/lib/http-database.test.js cli/lib/server.test.js cli/lib/media/twimg.test.js"
   },
   "dependencies": {
     "@js-eyes/client-sdk": "file:../js-eyes/packages/client-sdk",

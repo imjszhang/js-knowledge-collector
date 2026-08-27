@@ -7,16 +7,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from '../cli/lib/database.js';
+import { openDatabase, resolveDbConfig } from '../cli/lib/db-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 const DOCS = path.join(ROOT, 'docs');
-
-function resolveDbPath() {
-    return process.env.DB_PATH || path.join(ROOT, 'data', 'data.db');
-}
 
 function copyDirSync(src, dest) {
     if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
@@ -48,14 +44,13 @@ export async function build(options = {}) {
     const apiDir = path.join(DOCS, 'api', 'v1');
     const articlesDir = path.join(apiDir, 'articles');
 
-    const dbPath = resolveDbPath();
-    if (!fs.existsSync(dbPath)) {
-        log(`  数据库不存在 (${dbPath})，跳过 API 生成`);
+    const cfg = resolveDbConfig();
+    if (cfg.mode === 'local' && !fs.existsSync(cfg.dbPath)) {
+        log(`  数据库不存在 (${cfg.dbPath})，跳过 API 生成`);
         return results;
     }
 
-    const db = new Database(dbPath);
-    await db.connect();
+    const db = await openDatabase();
 
     try {
         if (!dryRun) {
@@ -64,9 +59,10 @@ export async function build(options = {}) {
         }
 
         // articles.json — 文章列表（不含 content 字段，减小体积）
-        const allArticles = await db.all(
-            'SELECT id, title, summary, digest, cover_url, source_url, created, recommend FROM jszhang_collected_articles ORDER BY created DESC',
-        );
+        const allArticles = await db.listAllArticles({
+            fields: 'id,title,summary,digest,cover_url,source_url,created,recommend',
+            sort: '-created',
+        });
 
         if (!dryRun) {
             fs.writeFileSync(path.join(apiDir, 'articles.json'), JSON.stringify({ status: 'success', data: allArticles, totalItems: allArticles.length, page: 1, totalPages: 1 }, null, 2), 'utf-8');
@@ -75,7 +71,7 @@ export async function build(options = {}) {
         log(`  articles.json: ${allArticles.length} 篇`);
 
         // 每篇文章的详情 JSON
-        const fullArticles = await db.all('SELECT * FROM jszhang_collected_articles ORDER BY created DESC');
+        const fullArticles = await db.listAllArticles({ sort: '-created' });
         for (const article of fullArticles) {
             if (!dryRun) {
                 fs.writeFileSync(path.join(articlesDir, `${article.id}.json`), JSON.stringify(article, null, 2), 'utf-8');

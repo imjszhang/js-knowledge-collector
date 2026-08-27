@@ -11,8 +11,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { scrape, detectRuleName, resolveScrapePaths, downloadMediaForData, needsMediaDownload } from './scraper.js';
 import { summarize } from './summarizer.js';
-import Database from './database.js';
 import { sendToFlomo, sendFileToFlomo } from './flomo.js';
+import { openDatabase } from './db-config.js';
 import { isLocalPath, resolveFilePath, detectFileType, getCachePath } from './file-path.js';
 import { parseFile } from './parsers/index.js';
 
@@ -103,6 +103,7 @@ export async function collectUrl(url, options = {}) {
         forceSummary = false,
         downloadMedia = false,
         dbPath,
+        remote,
     } = options;
 
     const { url: finalUrl, type: urlType } = convertUrl(url);
@@ -155,11 +156,10 @@ export async function collectUrl(url, options = {}) {
 
     // 4. 入库
     log('Step 4: 保存到数据库 ...');
-    const db = new Database(dbPath || resolveDbPath());
-    await db.connect();
+    const db = await openDatabase({ dbPath: dbPath || resolveDbPath(), remote });
     try {
-        const { record_id } = await db.addRecord(assembled);
-        log(`已保存: ${record_id}`);
+        const { record_id, existed } = await db.addRecord(assembled);
+        log(existed ? `已存在: ${record_id}` : `已保存: ${record_id}`);
         assembled.record_id = record_id;
     } finally {
         await db.close();
@@ -210,7 +210,7 @@ export async function collectUrl(url, options = {}) {
  * @returns {Promise<Object>} 收集结果
  */
 export async function collectFile(filePath, options = {}) {
-    const { flomo = false, noSummary = false, force = false, dbPath } = options;
+    const { flomo = false, noSummary = false, force = false, dbPath, remote } = options;
 
     const absPath = resolveFilePath(filePath);
     const fileType = detectFileType(absPath);
@@ -256,11 +256,10 @@ export async function collectFile(filePath, options = {}) {
 
     // 4. 入库
     log('Step 4: 保存到数据库 ...');
-    const db = new Database(dbPath || resolveDbPath());
-    await db.connect();
+    const db = await openDatabase({ dbPath: dbPath || resolveDbPath(), remote });
     try {
-        const { record_id } = await db.addRecord(assembled);
-        log(`已保存: ${record_id}`);
+        const { record_id, existed } = await db.addRecord(assembled);
+        log(existed ? `已存在: ${record_id}` : `已保存: ${record_id}`);
         assembled.record_id = record_id;
     } finally {
         await db.close();

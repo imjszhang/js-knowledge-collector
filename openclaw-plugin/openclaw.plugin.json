@@ -90,6 +90,31 @@
         "type": "number",
         "default": 10,
         "description": "定时同步间隔（分钟），设为 0 则仅在收集/删除时同步"
+      },
+      "remoteDbEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "是否将局域网另一台 knowledge-collector 作为正库（读写均走远程 HTTP）"
+      },
+      "remoteDbBaseUrl": {
+        "type": "string",
+        "default": "",
+        "description": "远程正库 HTTP 地址，如 http://192.168.1.20:3000"
+      },
+      "remoteDbApiPrefix": {
+        "type": "string",
+        "default": "/api/v1",
+        "description": "远程 API 前缀。独立 serve 用 /api/v1；对端是 OpenClaw 网关则用 /plugins/js-knowledge/api/v1"
+      },
+      "remoteDbToken": {
+        "type": "string",
+        "default": "",
+        "description": "远程正库写入用的 Bearer token，需与对端 apiToken / API_TOKEN 一致"
+      },
+      "apiToken": {
+        "type": "string",
+        "default": "",
+        "description": "本机作为正库时，保护 POST /api/v1/articles.json 的 Bearer token"
       }
     }
   },
@@ -155,6 +180,33 @@
       "label": "同步间隔（分钟）",
       "placeholder": "10",
       "help": "定时增量同步的间隔，设为 0 则仅在收集/删除时触发同步",
+      "advanced": true
+    },
+    "remoteDbEnabled": {
+      "label": "启用远程正库",
+      "help": "开启后列表/搜索/入库/删除都打到 remoteDbBaseUrl，本机 SQLite 不再当主库"
+    },
+    "remoteDbBaseUrl": {
+      "label": "远程正库地址",
+      "placeholder": "http://192.168.1.20:3000",
+      "help": "另一台 knowledge-collector 的 HTTP 地址，推荐连对端独立 serve 的 /api/v1"
+    },
+    "remoteDbApiPrefix": {
+      "label": "远程 API 前缀",
+      "placeholder": "/api/v1",
+      "help": "独立 serve 用 /api/v1；对端走 OpenClaw 网关时用 /plugins/js-knowledge/api/v1",
+      "advanced": true
+    },
+    "remoteDbToken": {
+      "label": "远程写入 Token",
+      "help": "与正库机 apiToken 相同，写入时带 Authorization: Bearer",
+      "secret": true,
+      "advanced": true
+    },
+    "apiToken": {
+      "label": "本机写入 Token",
+      "help": "本机作为正库对外提供 POST 时必填，否则拒绝远程写入",
+      "secret": true,
       "advanced": true
     }
   }

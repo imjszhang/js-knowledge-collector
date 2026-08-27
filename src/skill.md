@@ -32,5 +32,7 @@ node cli/cli.js export --format prism
 ## 收集流程
 
 ```
-URL → 抓取 → AI 总结（概要/摘要/推荐） → SQLite 入库 → Flomo 推送（可选）
+URL → 抓取 → AI 总结（概要/摘要/推荐） → 本地 SQLite 或局域网正库 HTTP 入库 → Flomo 推送（可选）
 ```
+
+配置 `REMOTE_DB_ENABLED` + `REMOTE_DB_BASE_URL` 后，读写打到另一台 knowledge-collector；本机只负责抓取和总结。

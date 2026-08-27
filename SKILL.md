@@ -131,7 +131,12 @@ Read the OpenClaw config file (path determined by Step 0) and check:
 
 ### Step 3 — Database Health
 
-Check if the SQLite database exists and is accessible:
+If `remoteDbEnabled` + `remoteDbBaseUrl` (or `REMOTE_DB_ENABLED` + `REMOTE_DB_BASE_URL`) are set, this instance is a **client** and the LAN collector is the canonical store:
+
+- `curl http://<remote-host>:3000/api/v1/health.json` should return `{ "status": "ok", "mode": "local", "total": N }`
+- Then run `knowledge_stats` / `node cli/cli.js stats` — they read the remote store
+
+Otherwise check the local SQLite file:
 
 - Plugin mode: resolve path from `plugins.entries["js-knowledge-collector"].config.dbPath` (default: `{projectRoot}/data/data.db`)
 - Standalone mode: `DB_PATH` env var or `./data/data.db`
@@ -269,7 +274,7 @@ For platforms requiring JavaScript rendering (WeChat, Xiaohongshu, etc.), it con
 ```
 URL → Scraper (HTTP / JS-Eyes) → AI Summarizer (overview/digest/recommendation)
                                        ↓
-                                  SQLite Database
+                         SQLite（正库机）或 HTTP → 局域网正库
                                        ↓
                           ┌────────────┼────────────┐
                           ↓            ↓            ↓
@@ -352,9 +357,10 @@ The plugin registers HTTP routes on the OpenClaw gateway:
 | Route | Description |
 |-------|-------------|
 | `/plugins/js-knowledge/` | Knowledge browser — search, filter, paginate collected articles |
-| `/plugins/js-knowledge/api/v1/articles.json` | JSON API — article list with pagination, filter, search |
+| `/plugins/js-knowledge/api/v1/articles.json` | JSON API — article list (GET; `sourceUrl` exact match, `full=1` includes content) or create (POST, Bearer token) |
 | `/plugins/js-knowledge/api/v1/articles/{id}.json` | JSON API — single article detail (GET) or delete (DELETE) |
 | `/plugins/js-knowledge/api/v1/stats.json` | JSON API — collection statistics |
+| `/plugins/js-knowledge/api/v1/health.json` | JSON API — store health (`status`, `mode`, `total`) |
 
 Access the browser at `http://<openclaw-host>/plugins/js-knowledge/` after the plugin is loaded.
 
@@ -373,6 +379,10 @@ js-knowledge-collector/
 │   ├── cli.js                            ← CLI entry point
 │   └── lib/
 │       ├── collector.js                  ← Collection pipeline (scrape → summarize → store)
+│       ├── db-config.js                  ← Local SQLite vs remote HTTP store
+│       ├── http-database.js              ← HTTP client for a LAN canonical collector
+│       ├── api-auth.js                   ← Bearer token helpers for POST
+│       ├── article-api.js                ← Shared REST handlers (list/create/health)
 │       ├── scraper.js                    ← Web scraping (HTTP + JS-Eyes dispatch)
 │       ├── scraper-bilibili.js           ← Bilibili-specific scraper
 │       ├── scraper-youtube.js            ← YouTube-specific scraper
@@ -483,7 +493,12 @@ Restart OpenClaw to load the plugin.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `dbPath` | string | `data/data.db` | SQLite database file path |
+| `dbPath` | string | `data/data.db` | Local SQLite path (canonical store on the LAN server) |
+| `remoteDbEnabled` | boolean | `false` | Use another knowledge-collector on the LAN as the canonical store |
+| `remoteDbBaseUrl` | string | — | Remote HTTP origin, e.g. `http://192.168.1.20:3000` |
+| `remoteDbApiPrefix` | string | `/api/v1` | `/api/v1` for standalone `serve`; `/plugins/js-knowledge/api/v1` for an OpenClaw gateway |
+| `remoteDbToken` | string | — | Bearer token sent on remote writes; must match the server `apiToken` |
+| `apiToken` | string | — | Token required for `POST /api/v1/articles.json` when this machine is the canonical store |
 | `llmApiBaseUrl` | string | — | OpenAI-compatible API endpoint |
 | `llmApiKey` | string | — | API key |
 | `llmApiModel` | string | `gpt-4.1-mini` | Model name |
@@ -503,7 +518,12 @@ Restart OpenClaw to load the plugin.
 | `LLM_API_KEY` | LLM API key |
 | `LLM_API_MODEL` | LLM model name |
 | `FLOMO_API_URL` | Flomo webhook URL |
-| `DB_PATH` | SQLite database path (default `./data/data.db`) |
+| `DB_PATH` | Local SQLite path (default `./data/data.db`) |
+| `API_TOKEN` | Bearer token protecting POST writes on the canonical server |
+| `REMOTE_DB_ENABLED` | `true` to use a LAN collector as the canonical store |
+| `REMOTE_DB_BASE_URL` | Remote HTTP origin, e.g. `http://192.168.1.20:3000` |
+| `REMOTE_DB_API_PREFIX` | Default `/api/v1` |
+| `REMOTE_DB_TOKEN` | Bearer token matching the remote `API_TOKEN` |
 
 ## Verify
 
@@ -534,6 +554,9 @@ Expected output:
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `SQLITE_CANTOPEN` | Database path invalid or directory missing | Check `dbPath` / `DB_PATH`; ensure `data/` directory exists |
+| 远程知识库超时 / 连接失败 | LAN collector unreachable | Check `remoteDbBaseUrl`, firewall, and `curl .../api/v1/health.json` |
+| 远程知识库鉴权失败 (401) | Token mismatch or missing | Align `remoteDbToken` / `REMOTE_DB_TOKEN` with the server `apiToken` / `API_TOKEN` |
+| 正库未配置 API_TOKEN，拒绝写入 | Canonical server has no write token | Set `API_TOKEN` (standalone) or `apiToken` (plugin) on the LAN server |
 | LLM timeout / connection refused | API unreachable | Check `llmApiBaseUrl` and network; verify API key is valid |
 | Empty summary after collect | LLM returned empty response | Check prompt files in `prompts/`; try a different model |
 | WeChat/Xiaohongshu scrape fails | JS-Eyes not running | Start JS-Eyes service; check `JS_EYES_WS_URL` |
@@ -543,7 +566,25 @@ Expected output:
 
 ## Security
 
-This skill only communicates with **user-configured** LLM API endpoints and the **user-configured** JS-Eyes service. It does not call any external APIs, collect telemetry, or transmit user data. All article content is stored locally in SQLite. Flomo push is opt-in and uses the user's own webhook URL.
+This skill only communicates with **user-configured** LLM API endpoints, the **user-configured** JS-Eyes service, and (when enabled) a **user-configured** LAN knowledge-collector HTTP API. It does not call any other external APIs, collect telemetry, or transmit user data. Article content is stored in local SQLite on the canonical machine, or written to that machine over HTTP when this instance is a client. Flomo push is opt-in and uses the user's own webhook URL. `POST /api/v1/articles.json` requires a Bearer token (`API_TOKEN` / `apiToken`).
+
+## Remote knowledge base (LAN canonical store)
+
+Two machines run the same project. The LAN server keeps the SQLite file and exposes HTTP; this machine scrapes/summarizes and reads/writes remotely.
+
+**Canonical server** (do not enable `remoteDb*`):
+
+1. Set `API_TOKEN` (standalone) or plugin `apiToken`.
+2. Run `node cli/cli.js serve` (or plugin `autoStartServer`) and open the port on the LAN.
+3. Confirm `GET /api/v1/health.json`.
+
+**Client**:
+
+1. Set `remoteDbEnabled` + `remoteDbBaseUrl` + `remoteDbToken` (or the `REMOTE_DB_*` env vars).
+2. Prefer `remoteDbApiPrefix=/api/v1` against standalone `serve`.
+3. Collect/search/list/delete/export/memory-sync all go to the remote store. Local `data.db` is not the primary database.
+4. Remote failures are surfaced as errors — they do not fall back to the local file.
+5. `--download-media` local file paths in `cover_url` are not uploaded; keep original remote image URLs when possible.
 
 ## Extension Skills
 

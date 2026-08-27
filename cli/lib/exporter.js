@@ -9,14 +9,16 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from './database.js';
+import { openDatabase } from './db-config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const EXPORTED_IDS_FILE = 'exported_ids.json';
 
-function resolveDbPath(explicit) {
-    return explicit || process.env.DB_PATH || path.join(PROJECT_ROOT, 'data', 'data.db');
+function storeOptionsFrom(options) {
+    if (!options) return {};
+    if (typeof options === 'string') return { dbPath: options };
+    return { dbPath: options.dbPath, remote: options.remote };
 }
 
 // ── 工具函数 ─────────────────────────────────────────────────────────
@@ -90,13 +92,13 @@ function ensureUniquePath(dir, dateDir, slug) {
 
 // ── 查询全部文章 ────────────────────────────────────────────────────
 
-async function getAllArticles(dbPath) {
-    const db = new Database(resolveDbPath(dbPath));
-    await db.connect();
+async function getAllArticles(storeOptions) {
+    const db = await openDatabase(storeOptionsFrom(storeOptions));
     try {
-        return await db.all(
-            'SELECT id, title, summary, digest, content, source_url, created, updated, recommend FROM jszhang_collected_articles ORDER BY created ASC',
-        );
+        return await db.listAllArticles({
+            fields: 'id,title,summary,digest,content,source_url,created,updated,recommend',
+            sort: 'created',
+        });
     } finally {
         await db.close();
     }
@@ -113,8 +115,8 @@ async function getAllArticles(dbPath) {
  * @returns {Promise<Object>} 导出结果
  */
 export async function exportArticles(options = {}) {
-    const { format = 'json', force = false, id, dbPath } = options;
-    let articles = await getAllArticles(dbPath);
+    const { format = 'json', force = false, id, dbPath, remote } = options;
+    let articles = await getAllArticles({ dbPath, remote });
 
     if (id) {
         articles = articles.filter(a => a.id === id);

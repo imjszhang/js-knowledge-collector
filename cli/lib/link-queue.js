@@ -9,7 +9,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { collect } from './collector.js';
-import Database from './database.js';
+import { openDatabase } from './db-config.js';
 import { isLocalPath } from './file-path.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -116,15 +116,16 @@ function normalizeTarget(input) {
   return value;
 }
 
-async function articleExistsByTarget(dbPath, target) {
-  const db = new Database(dbPath);
-  await db.connect();
+function storeOptionsFrom(options) {
+  if (!options) return {};
+  if (typeof options === 'string') return { dbPath: options };
+  return { dbPath: options.dbPath, remote: options.remote };
+}
+
+async function articleExistsByTarget(storeOptions, target) {
+  const db = await openDatabase(storeOptionsFrom(storeOptions));
   try {
-    const row = await db.get(
-      'SELECT id, title FROM jszhang_collected_articles WHERE source_url = ? LIMIT 1',
-      [target],
-    );
-    return row || null;
+    return await db.findBySourceUrl(target);
   } finally {
     await db.close();
   }
@@ -163,6 +164,7 @@ export async function enqueueLink(input, options = {}) {
   const {
     workspace,
     dbPath,
+    remote,
     priority = false,
     tags = [],
     autoTags = true,
@@ -184,7 +186,7 @@ export async function enqueueLink(input, options = {}) {
     return { status: 'already_queued', target, queueDir };
   }
 
-  const existing = await articleExistsByTarget(dbPath, target);
+  const existing = await articleExistsByTarget({ dbPath, remote }, target);
   if (existing) {
     return {
       status: 'already_in_db',
@@ -289,6 +291,7 @@ export async function processInbox(options = {}) {
   const {
     workspace,
     dbPath,
+    remote,
     defaultFlomo = true,
     memorySyncEnabled = true,
     memorySyncDir = path.join(PROJECT_ROOT, 'work_dir', 'memory-export'),
@@ -333,7 +336,7 @@ export async function processInbox(options = {}) {
     writeJsonlAtomic(batchPath, entries);
 
     const target = entry.url;
-    const existing = await articleExistsByTarget(dbPath, target);
+    const existing = await articleExistsByTarget({ dbPath, remote }, target);
     if (existing) {
       entry.status = 'skipped';
       entry.processed_at = nowIso();
@@ -348,6 +351,7 @@ export async function processInbox(options = {}) {
       log(`[link-queue] collecting: ${target}`);
       const result = await collect(target, {
         dbPath,
+        remote,
         flomo,
         noSummary: !!entry.noSummary,
         force: !!entry.force,

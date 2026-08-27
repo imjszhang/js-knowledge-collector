@@ -7,7 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import Database from "./database.js";
+import { openDatabase } from "./db-config.js";
 
 const SYNC_STATE_FILE = ".sync-state.json";
 
@@ -60,24 +60,23 @@ function mdFileName(id) {
  *
  * @param {Object} opts
  * @param {string} opts.dbPath     SQLite 数据库路径
+ * @param {object} [opts.remote]   远程正库配置
  * @param {string} opts.outputDir  Markdown 输出目录
  * @param {boolean} [opts.force]   强制全量重新导出
  * @returns {Promise<{synced: number, deleted: number, total: number}>}
  */
-export async function syncToMemory({ dbPath, outputDir, force = false }) {
+export async function syncToMemory({ dbPath, remote, outputDir, force = false }) {
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const db = new Database(dbPath);
-  await db.connect();
+  const db = await openDatabase({ dbPath, remote });
 
   try {
-    const articles = await db.all(
-      `SELECT id, title, summary, digest, recommend, source_url, created, updated
-       FROM jszhang_collected_articles
-       ORDER BY created ASC`,
-    );
+    const articles = await db.listAllArticles({
+      fields: 'id,title,summary,digest,recommend,source_url,created,updated',
+      sort: 'created',
+    });
 
     const state = force ? { lastSyncAt: null, articles: {} } : loadSyncState(outputDir);
     const dbIdSet = new Set(articles.map((a) => a.id));
