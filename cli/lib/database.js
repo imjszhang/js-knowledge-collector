@@ -125,7 +125,40 @@ export default class Database {
 
     // ── CRUD ─────────────────────────────────────────────────────────
 
+    async findBySourceUrl(url) {
+        if (!url) return null;
+        const row = await this.get(
+            `SELECT id, title FROM ${TABLE_NAME} WHERE source_url = ? LIMIT 1`,
+            [url],
+        );
+        return row || null;
+    }
+
+    async listAllArticles(options = {}) {
+        const allowed = new Set([
+            'id', 'title', 'summary', 'digest', 'content',
+            'cover_url', 'source_url', 'created', 'updated', 'recommend',
+        ]);
+        const requested = options.fields
+            ? String(options.fields).split(',').map((f) => f.trim()).filter((f) => allowed.has(f))
+            : [...allowed];
+        const select = requested.length ? requested.join(', ') : '*';
+        const desc = options.sort === '-created' || options.sort === '-updated';
+        const field = desc ? String(options.sort).slice(1) : (options.sort || 'created');
+        const orderField = allowed.has(field) ? field : 'created';
+        const order = `ORDER BY ${orderField} ${desc ? 'DESC' : 'ASC'}`;
+        return this.all(`SELECT ${select} FROM ${TABLE_NAME} ${order}`);
+    }
+
     async addRecord(data) {
+        const sourceUrl = data.source_url || '';
+        if (sourceUrl) {
+            const existing = await this.findBySourceUrl(sourceUrl);
+            if (existing) {
+                return { record_id: existing.id, message: '记录已存在', existed: true };
+            }
+        }
+
         const id = data.id || Database.generateId();
         const now = Database.now();
         const record = {
@@ -135,7 +168,7 @@ export default class Database {
             digest: data.digest || '',
             content: data.content || '',
             cover_url: data.cover_url || '',
-            source_url: data.source_url || '',
+            source_url: sourceUrl,
             created: data.created || now,
             updated: data.updated || now,
             recommend: data.recommend || '',
@@ -195,10 +228,17 @@ export default class Database {
         const perPage = options.perPage || 20;
         const source = options.source || '';
         const keyword = options.keyword || '';
+        const sourceUrl = options.sourceUrl || '';
+        const full = !!options.full;
         const sort = options.sort || '-created';
 
         const conditions = [];
         const params = [];
+
+        if (sourceUrl) {
+            conditions.push('source_url = ?');
+            params.push(sourceUrl);
+        }
 
         if (source) {
             if (source === 'other') {
@@ -235,8 +275,12 @@ export default class Database {
         const totalItems = countResult?.count ?? 0;
         const totalPages = Math.ceil(totalItems / perPage) || 1;
 
+        const select = full
+            ? 'id, title, summary, digest, content, cover_url, source_url, created, updated, recommend'
+            : 'id, title, summary, digest, cover_url, source_url, created, recommend';
+
         const data = await this.all(
-            `SELECT id, title, summary, digest, cover_url, source_url, created, recommend
+            `SELECT ${select}
              FROM ${TABLE_NAME} ${where} ${order} LIMIT ? OFFSET ?`,
             [...params, perPage, offset],
         );

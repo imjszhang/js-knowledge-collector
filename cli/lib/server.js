@@ -2,17 +2,28 @@
  * Server — 轻量 HTTP 服务器，提供静态文件服务 + REST API
  *
  * API 路由:
- *   GET    /api/v1/articles.json?page=&perPage=&source=&keyword=
+ *   GET    /api/v1/articles.json?page=&perPage=&source=&keyword=&sourceUrl=&full=
+ *   POST   /api/v1/articles.json
  *   GET    /api/v1/articles/:id.json
  *   DELETE /api/v1/articles/:id.json
  *   GET    /api/v1/stats.json
+ *   GET    /api/v1/health.json
  */
 
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from './database.js';
+import { openDatabase, resolveDbConfig, defaultDbPath } from './db-config.js';
+import { requireApiToken, resolveApiToken, readJsonBody } from './api-auth.js';
+import {
+    listArticlesPayload,
+    createArticlePayload,
+    articleDetailPayload,
+    deleteArticlePayload,
+    statsPayload,
+    healthPayload,
+} from './article-api.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -35,16 +46,17 @@ const MIME_TYPES = {
     '.md': 'text/markdown; charset=utf-8',
 };
 
-function resolveDbPath() {
-    return process.env.DB_PATH || path.join(ROOT, 'data', 'data.db');
-}
+const CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
 function json(res, statusCode, body) {
     const payload = JSON.stringify(body);
     res.writeHead(statusCode, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
+        ...CORS,
     });
     res.end(payload);
 }
@@ -62,84 +74,68 @@ function serveStatic(res, filePath) {
     stream.pipe(res);
 }
 
-// ── API Route Handlers ──────────────────────────────────────────────
-
-async function handleArticlesList(db, query, res) {
-    const page = parseInt(query.get('page'), 10) || 1;
-    const perPage = parseInt(query.get('perPage'), 10) || 12;
-    const source = query.get('source') || '';
-    const keyword = query.get('keyword') || '';
-
-    const result = await db.getArticles({ page, perPage, source, keyword });
-    json(res, 200, { status: 'success', ...result });
-}
-
-async function handleArticleDetail(db, id, res) {
-    const record = await db.getRecord(id);
-    if (!record) {
-        json(res, 404, { status: 'error', message: '文章不存在' });
+async function handleApi(ctx, req, res, pathname, searchParams) {
+    if (pathname === '/api/v1/health.json' && req.method === 'GET') {
+        const result = await healthPayload(ctx.db, ctx.mode);
+        json(res, result.statusCode, result.body);
         return;
     }
-    json(res, 200, { status: 'success', data: record });
-}
 
-async function handleArticleDelete(db, id, res) {
-    try {
-        const result = await db.deleteRecord(id);
-        json(res, 200, result);
-    } catch (err) {
-        json(res, 404, { status: 'error', message: err.message });
+    if (pathname === '/api/v1/articles.json' && req.method === 'GET') {
+        const result = await listArticlesPayload(ctx.db, searchParams);
+        json(res, result.statusCode, result.body);
+        return;
     }
+
+    if (pathname === '/api/v1/articles.json' && req.method === 'POST') {
+        const auth = requireApiToken(req, ctx.apiToken);
+        if (!auth.ok) {
+            json(res, auth.status, { status: 'error', message: auth.message });
+            return;
+        }
+        const data = await readJsonBody(req);
+        const result = await createArticlePayload(ctx.db, data);
+        json(res, result.statusCode, result.body);
+        return;
+    }
+
+    if (pathname === '/api/v1/stats.json' && req.method === 'GET') {
+        const result = await statsPayload(ctx.db);
+        json(res, result.statusCode, result.body);
+        return;
+    }
+
+    const articleMatch = pathname.match(/^\/api\/v1\/articles\/([^/]+)\.json$/);
+    if (articleMatch) {
+        const id = articleMatch[1];
+        if (req.method === 'GET') {
+            const result = await articleDetailPayload(ctx.db, id);
+            json(res, result.statusCode, result.body);
+            return;
+        }
+        if (req.method === 'DELETE') {
+            const result = await deleteArticlePayload(ctx.db, id);
+            json(res, result.statusCode, result.body);
+            return;
+        }
+    }
+
+    json(res, 404, { status: 'error', message: 'API route not found' });
 }
 
-async function handleStats(db, res) {
-    const stats = await db.getStats();
-    json(res, 200, stats);
-}
-
-// ── Router ──────────────────────────────────────────────────────────
-
-async function handleRequest(db, req, res) {
+async function handleRequest(ctx, req, res) {
     const parsed = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(parsed.pathname);
 
     if (req.method === 'OPTIONS') {
-        res.writeHead(204, {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-        });
+        res.writeHead(204, CORS);
         res.end();
         return;
     }
 
-    // API routes
     if (pathname.startsWith('/api/v1/')) {
         try {
-            if (pathname === '/api/v1/articles.json' && req.method === 'GET') {
-                await handleArticlesList(db, parsed.searchParams, res);
-                return;
-            }
-
-            if (pathname === '/api/v1/stats.json' && req.method === 'GET') {
-                await handleStats(db, res);
-                return;
-            }
-
-            const articleMatch = pathname.match(/^\/api\/v1\/articles\/([^/]+)\.json$/);
-            if (articleMatch) {
-                const id = articleMatch[1];
-                if (req.method === 'GET') {
-                    await handleArticleDetail(db, id, res);
-                    return;
-                }
-                if (req.method === 'DELETE') {
-                    await handleArticleDelete(db, id, res);
-                    return;
-                }
-            }
-
-            json(res, 404, { status: 'error', message: 'API route not found' });
+            await handleApi(ctx, req, res, pathname, parsed.searchParams);
         } catch (err) {
             process.stderr.write(`API error: ${err.message}\n`);
             json(res, 500, { status: 'error', message: err.message });
@@ -147,7 +143,6 @@ async function handleRequest(db, req, res) {
         return;
     }
 
-    // Static file serving
     let filePath = path.join(SRC_DIR, pathname === '/' ? 'index.html' : pathname);
     filePath = path.normalize(filePath);
 
@@ -170,43 +165,55 @@ async function handleRequest(db, req, res) {
     serveStatic(res, filePath);
 }
 
-// ── Start ───────────────────────────────────────────────────────────
-
 export async function startServer(options = {}) {
     const port = parseInt(options.port, 10) || 3000;
-    const dbPath = resolveDbPath();
     const log = (msg) => process.stderr.write(msg + '\n');
+    const storeOptions = {
+        dbPath: options.dbPath || defaultDbPath(),
+        remote: options.remote,
+    };
+    const cfg = resolveDbConfig(storeOptions);
 
-    if (!fs.existsSync(dbPath)) {
-        log(`Error: 数据库不存在 (${dbPath})`);
-        log('请先运行 collect 命令收集文章，或设置 DB_PATH 环境变量');
-        process.exit(1);
+    if (cfg.mode === 'local' && !fs.existsSync(cfg.dbPath)) {
+        const message = `数据库不存在 (${cfg.dbPath})。请先运行 collect，或设置 DB_PATH / remoteDb`;
+        log(`Error: ${message}`);
+        throw new Error(message);
     }
 
-    const db = new Database(dbPath);
-    await db.connect();
-    log(`Database connected: ${dbPath}`);
+    const db = await openDatabase(storeOptions);
+    const ctx = {
+        db,
+        mode: cfg.mode,
+        apiToken: resolveApiToken(options.apiToken),
+    };
+
+    if (cfg.mode === 'remote') {
+        log(`Database connected: remote ${cfg.remote.baseUrl}${cfg.remote.apiPrefix}`);
+    } else {
+        log(`Database connected: ${cfg.dbPath}`);
+    }
 
     const server = http.createServer((req, res) => {
-        handleRequest(db, req, res);
+        handleRequest(ctx, req, res);
     });
 
-    server.on('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-            log(`Error: 端口 ${port} 已被占用，尝试端口 ${port + 1}`);
-            server.listen(port + 1);
-        } else {
-            log(`Server error: ${err.message}`);
-            process.exit(1);
-        }
+    await new Promise((resolve, reject) => {
+        server.on('listening', resolve);
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                log(`Error: 端口 ${port} 已被占用，尝试端口 ${port + 1}`);
+                server.listen(port + 1);
+            } else {
+                reject(err);
+            }
+        });
+        server.listen(port);
     });
 
-    server.listen(port, () => {
-        const addr = server.address();
-        log(`\n  Server running at http://localhost:${addr.port}`);
-        log(`  Serving static files from: ${SRC_DIR}`);
-        log(`  API base: http://localhost:${addr.port}/api/v1/\n`);
-    });
+    const addr = server.address();
+    log(`\n  Server running at http://localhost:${addr.port}`);
+    log(`  Serving static files from: ${SRC_DIR}`);
+    log(`  API base: http://localhost:${addr.port}/api/v1/\n`);
 
     const shutdown = async () => {
         log('\nShutting down...');
@@ -216,4 +223,6 @@ export async function startServer(options = {}) {
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
+
+    return server;
 }

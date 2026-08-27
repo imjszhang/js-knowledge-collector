@@ -3,6 +3,16 @@ import nodeFs from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
+import { openDatabase } from "../cli/lib/db-config.js";
+import { requireApiToken, readJsonBody } from "../cli/lib/api-auth.js";
+import {
+  listArticlesPayload,
+  createArticlePayload,
+  articleDetailPayload,
+  deleteArticlePayload,
+  statsPayload,
+  healthPayload,
+} from "../cli/lib/article-api.js";
 
 const __dirname = nodePath.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = nodePath.resolve(__dirname, "..");
@@ -50,7 +60,8 @@ function sendJson(res, statusCode, body) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
   });
   res.end(payload);
 }
@@ -71,11 +82,8 @@ function serveStaticFile(res, filePath) {
   stream.pipe(res);
 }
 
-async function getDb(dbPath) {
-  const Database = (await import("../cli/lib/database.js")).default;
-  const db = new Database(dbPath);
-  await db.connect();
-  return db;
+async function getDb(storeOptions) {
+  return openDatabase(storeOptions);
 }
 
 export default function register(api) {
@@ -84,6 +92,19 @@ export default function register(api) {
 
   const pluginCfg = api.pluginConfig ?? {};
   const collectorDbPath = resolveCollectorDbPath(pluginCfg);
+  const remoteCfg = (pluginCfg.remoteDbEnabled && pluginCfg.remoteDbBaseUrl)
+    ? {
+        enabled: true,
+        baseUrl: pluginCfg.remoteDbBaseUrl,
+        apiPrefix: pluginCfg.remoteDbApiPrefix || "/api/v1",
+        token: pluginCfg.remoteDbToken || "",
+      }
+    : null;
+  const storeOptions = {
+    dbPath: collectorDbPath,
+    remote: remoteCfg,
+  };
+  const apiToken = pluginCfg.apiToken || process.env.API_TOKEN || "";
   const defaultFlomo = pluginCfg.defaultFlomo ?? true;
   const collectorWorkspace = pluginCfg.workspace
     ? nodePath.resolve(pluginCfg.workspace)
@@ -110,7 +131,7 @@ export default function register(api) {
   async function runMemorySync({ force = false, logger } = {}) {
     try {
       const { syncToMemory } = await import("../cli/lib/memory-sync.js");
-      return await syncToMemory({ dbPath: collectorDbPath, outputDir: memorySyncDir, force });
+      return await syncToMemory({ ...storeOptions, outputDir: memorySyncDir, force });
     } catch (err) {
       if (logger) logger.error(`[knowledge] memory sync failed: ${err.message}`);
       return null;
@@ -130,7 +151,12 @@ export default function register(api) {
       }
       try {
         const { startServer } = await import("../cli/lib/server.js");
-        serverInstance = await startServer({ port: serverPort });
+        serverInstance = await startServer({
+          port: serverPort,
+          ...storeOptions,
+          remote: remoteCfg,
+          apiToken,
+        });
         ctx.logger.info(`[knowledge] Standalone server started on http://localhost:${serverPort}`);
       } catch (err) {
         ctx.logger.error(`[knowledge] Failed to start standalone server: ${err.message}`);
@@ -189,13 +215,14 @@ export default function register(api) {
   // ---------------------------------------------------------------------------
   // Gateway HTTP Routes: Web UI + REST API
   //
-  // All routes live under /plugins/knowledge/
-  //   GET  /plugins/knowledge/                          → index.html
-  //   GET  /plugins/knowledge/<file>                    → static file from src/
-  //   GET  /plugins/knowledge/api/v1/articles.json      → article list
-  //   GET  /plugins/knowledge/api/v1/stats.json         → stats
-  //   GET  /plugins/knowledge/api/v1/articles/{id}.json → article detail
-  //   DELETE /plugins/knowledge/api/v1/articles/{id}.json → delete article
+  // All routes live under /plugins/js-knowledge/
+  //   GET  /plugins/js-knowledge/                          → index.html
+  //   GET  /plugins/js-knowledge/api/v1/articles.json      → article list
+  //   POST /plugins/js-knowledge/api/v1/articles.json      → create article
+  //   GET  /plugins/js-knowledge/api/v1/stats.json         → stats
+  //   GET  /plugins/js-knowledge/api/v1/health.json        → health
+  //   GET  /plugins/js-knowledge/api/v1/articles/{id}.json → article detail
+  //   DELETE /plugins/js-knowledge/api/v1/articles/{id}.json → delete article
   // ---------------------------------------------------------------------------
 
   api.registerHttpRoute({
@@ -216,27 +243,59 @@ export default function register(api) {
   });
 
   api.registerHttpRoute({
-    path: `${ROUTE_PREFIX}/api/v1/articles.json`,
+    path: `${ROUTE_PREFIX}/api/v1/health.json`,
     auth: "plugin",
     async handler(req, res) {
       if (req.method === "OPTIONS") {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         });
         res.end();
         return;
       }
-      const db = await getDb(collectorDbPath);
+      const db = await getDb(storeOptions);
       try {
+        const result = await healthPayload(db, remoteCfg ? "remote" : "local");
+        sendJson(res, result.statusCode, result.body);
+      } catch (err) {
+        sendJson(res, 500, { status: "error", message: err.message });
+      } finally {
+        await db.close();
+      }
+    },
+  });
+
+  api.registerHttpRoute({
+    path: `${ROUTE_PREFIX}/api/v1/articles.json`,
+    auth: "plugin",
+    async handler(req, res) {
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        });
+        res.end();
+        return;
+      }
+      const db = await getDb(storeOptions);
+      try {
+        if (req.method === "POST") {
+          const auth = requireApiToken(req, apiToken);
+          if (!auth.ok) {
+            sendJson(res, auth.status, { status: "error", message: auth.message });
+            return;
+          }
+          const data = await readJsonBody(req);
+          const result = await createArticlePayload(db, data);
+          sendJson(res, result.statusCode, result.body);
+          return;
+        }
         const parsed = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-        const page = parseInt(parsed.searchParams.get("page"), 10) || 1;
-        const perPage = parseInt(parsed.searchParams.get("perPage"), 10) || 12;
-        const source = parsed.searchParams.get("source") || "";
-        const keyword = parsed.searchParams.get("keyword") || "";
-        const result = await db.getArticles({ page, perPage, source, keyword });
-        sendJson(res, 200, { status: "success", ...result });
+        const result = await listArticlesPayload(db, parsed.searchParams);
+        sendJson(res, result.statusCode, result.body);
       } catch (err) {
         sendJson(res, 500, { status: "error", message: err.message });
       } finally {
@@ -253,15 +312,15 @@ export default function register(api) {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         });
         res.end();
         return;
       }
-      const db = await getDb(collectorDbPath);
+      const db = await getDb(storeOptions);
       try {
-        const stats = await db.getStats();
-        sendJson(res, 200, stats);
+        const result = await statsPayload(db);
+        sendJson(res, result.statusCode, result.body);
       } catch (err) {
         sendJson(res, 500, { status: "error", message: err.message });
       } finally {
@@ -279,7 +338,7 @@ export default function register(api) {
         res.writeHead(204, {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, DELETE, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
         });
         res.end();
         return;
@@ -291,18 +350,14 @@ export default function register(api) {
         return;
       }
       const id = match[1];
-      const db = await getDb(collectorDbPath);
+      const db = await getDb(storeOptions);
       try {
         if (req.method === "DELETE") {
-          const result = await db.deleteRecord(id);
-          sendJson(res, 200, result);
+          const result = await deleteArticlePayload(db, id);
+          sendJson(res, result.statusCode, result.body);
         } else {
-          const record = await db.getRecord(id);
-          if (!record) {
-            sendJson(res, 404, { status: "error", message: "文章不存在" });
-          } else {
-            sendJson(res, 200, { status: "success", data: record });
-          }
+          const result = await articleDetailPayload(db, id);
+          sendJson(res, result.statusCode, result.body);
         }
       } catch (err) {
         sendJson(res, 500, { status: "error", message: err.message });
@@ -410,7 +465,7 @@ export default function register(api) {
           const flomo = params.flomo === undefined ? null : !!params.flomo;
           const result = await enqueueLink(target, {
             workspace: collectorWorkspace,
-            dbPath: collectorDbPath,
+            ...storeOptions,
             priority: !!params.priority,
             tags: Array.isArray(params.tags) ? params.tags : [],
             autoTags: !Array.isArray(params.tags) || params.tags.length === 0,
@@ -467,7 +522,7 @@ export default function register(api) {
         try {
           const { searchArticles } = await import("../cli/lib/data-reader.js");
           const result = await searchArticles(params.keyword, {
-            dbPath: collectorDbPath,
+            ...storeOptions,
             source: params.source,
           });
           if (!result || result.length === 0) {
@@ -510,7 +565,7 @@ export default function register(api) {
         try {
           const { listArticles } = await import("../cli/lib/data-reader.js");
           const result = await listArticles({
-            dbPath: collectorDbPath,
+            ...storeOptions,
             source: params.source,
             page: params.page,
             perPage: params.perPage,
@@ -547,7 +602,7 @@ export default function register(api) {
       async execute(_toolCallId, params) {
         try {
           const { getArticle } = await import("../cli/lib/data-reader.js");
-          const result = await getArticle(params.id, { dbPath: collectorDbPath });
+          const result = await getArticle(params.id, storeOptions);
           if (!result) {
             return textResult(`未找到 ID 为 "${params.id}" 的文章。`);
           }
@@ -573,7 +628,7 @@ export default function register(api) {
       async execute() {
         try {
           const { getStats } = await import("../cli/lib/data-reader.js");
-          const stats = await getStats({ dbPath: collectorDbPath });
+          const stats = await getStats(storeOptions);
 
           const lines = ["## 知识库统计"];
           if (stats.total !== undefined) {
@@ -616,7 +671,7 @@ export default function register(api) {
       async execute(_toolCallId, params) {
         try {
           const { deleteArticle } = await import("../cli/lib/data-reader.js");
-          const result = await deleteArticle(params.id, { dbPath: collectorDbPath });
+          const result = await deleteArticle(params.id, storeOptions);
 
           if (memorySyncEnabled) runMemorySync();
 
@@ -659,7 +714,7 @@ export default function register(api) {
           const result = await exportArticles({
             format: params.format || "json",
             force: params.force ?? false,
-            dbPath: collectorDbPath,
+            ...storeOptions,
           });
           return jsonResult(result);
         } catch (err) {
@@ -686,7 +741,7 @@ export default function register(api) {
         .action(async () => {
           try {
             const { getStats } = await import("../cli/lib/data-reader.js");
-            const stats = await getStats({ dbPath: collectorDbPath });
+            const stats = await getStats(storeOptions);
             console.log("\n=== 知识库统计 ===");
             if (stats.total !== undefined) {
               console.log(`  文章总数: ${stats.total}`);
@@ -713,7 +768,7 @@ export default function register(api) {
           try {
             const { listArticles } = await import("../cli/lib/data-reader.js");
             const result = await listArticles({
-              dbPath: collectorDbPath,
+              ...storeOptions,
               source: opts.source,
               page: parseInt(opts.page, 10),
               perPage: parseInt(opts.perPage, 10),
@@ -732,7 +787,7 @@ export default function register(api) {
           try {
             const { searchArticles } = await import("../cli/lib/data-reader.js");
             const result = await searchArticles(keyword, {
-              dbPath: collectorDbPath,
+              ...storeOptions,
               source: opts.source,
             });
             console.log(JSON.stringify(result, null, 2));
@@ -756,7 +811,7 @@ export default function register(api) {
               ? false
               : (opts.flomo ? true : defaultFlomo);
             const result = await collect(input, {
-              dbPath: collectorDbPath,
+              ...storeOptions,
               flomo,
               noSummary: !!opts.noSummary,
               force: !!opts.force,
@@ -783,7 +838,7 @@ export default function register(api) {
             const { processInbox } = await import("../cli/lib/link-queue.js");
             await processInbox({
               workspace: collectorWorkspace,
-              dbPath: collectorDbPath,
+              ...storeOptions,
               defaultFlomo,
               memorySyncEnabled,
               memorySyncDir,
@@ -806,7 +861,7 @@ export default function register(api) {
               ? nodePath.resolve(opts.dir)
               : memorySyncDir;
             const result = await syncToMemory({
-              dbPath: collectorDbPath,
+              ...storeOptions,
               outputDir,
               force: !!opts.force,
             });
