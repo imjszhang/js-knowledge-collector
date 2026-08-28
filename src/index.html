@@ -634,10 +634,14 @@
         let currentKeyword = '';
         const perPage = 12;
 
-        // API base: plugin mode uses /plugins/js-knowledge prefix, standalone uses /api/v1
-        const API_BASE = window.location.pathname.startsWith('/plugins/js-knowledge')
-            ? '/plugins/js-knowledge/api/v1'
-            : '/api/v1';
+        // API base follows the page directory so / , /knowledge/ , /plugins/js-knowledge/ all work.
+        const API_BASE = (() => {
+            const path = window.location.pathname;
+            const dir = path.endsWith('/')
+                ? path.replace(/\/$/, '')
+                : path.replace(/\/[^/]*$/, '');
+            return `${dir}/api/v1`;
+        })();
 
         // DOM Elements
         const articleGrid = document.getElementById('articleGrid');

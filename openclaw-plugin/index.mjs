@@ -111,6 +111,9 @@ export default function register(api) {
     : undefined;
 
   const serverPort = pluginCfg.serverPort || 3000;
+  const serverHost = typeof pluginCfg.serverHost === "string"
+    ? pluginCfg.serverHost.trim()
+    : "";
   const autoStart = pluginCfg.autoStartServer ?? false;
 
   const memorySyncEnabled = pluginCfg.memorySyncEnabled ?? true;
@@ -153,11 +156,13 @@ export default function register(api) {
         const { startServer } = await import("../cli/lib/server.js");
         serverInstance = await startServer({
           port: serverPort,
+          ...(serverHost ? { host: serverHost } : {}),
           ...storeOptions,
           remote: remoteCfg,
           apiToken,
         });
-        ctx.logger.info(`[knowledge] Standalone server started on http://localhost:${serverPort}`);
+        const bindHost = serverHost || "localhost";
+        ctx.logger.info(`[knowledge] Standalone server started on http://${bindHost}:${serverPort}`);
       } catch (err) {
         ctx.logger.error(`[knowledge] Failed to start standalone server: ${err.message}`);
         serverInstance = null;

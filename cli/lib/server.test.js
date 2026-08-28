@@ -62,6 +62,25 @@ test('serve health, sourceUrl, and token-protected POST', async (t) => {
     assert.equal(listed.data[0].title, 'A');
 });
 
+test('startServer binds to explicit loopback host', async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-srv-host-'));
+    const dbPath = path.join(dir, 'data.db');
+    const seed = new Database(dbPath);
+    await seed.connect();
+    await seed.close();
+
+    const server = await startServer({ port: 18767, host: '127.0.0.1', dbPath, apiToken: 'tok' });
+    t.after(async () => {
+        await new Promise((resolve) => server.close(resolve));
+        fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    const addr = server.address();
+    assert.equal(addr.address, '127.0.0.1');
+    const health = await (await fetch(`http://127.0.0.1:${addr.port}/api/v1/health.json`)).json();
+    assert.equal(health.status, 'ok');
+});
+
 test('startServer throws when local db is missing (does not exit process)', async () => {
     const missing = path.join(os.tmpdir(), `kc-missing-${Date.now()}`, 'no.db');
     await assert.rejects(

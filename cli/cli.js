@@ -20,7 +20,7 @@
  *   delete <id>
  *   export           [--format prism|json|md] [--force] [--id <id>]
  *   build            [--dry-run]
- *   serve            [--port <N>]
+ *   serve            [--port <N>] [--host <addr>]
  *   commit           [--message "..."]
  *   sync             [--no-push] [--message "..."]
  *
@@ -223,7 +223,10 @@ async function cmdBuild(flags) {
 
 async function cmdServe(flags) {
     const { startServer } = await import('./lib/server.js');
-    await startServer({ port: flags.port || 3000 });
+    await startServer({
+        port: flags.port || 3000,
+        host: typeof flags.host === 'string' ? flags.host : undefined,
+    });
 }
 
 function cmdCommit(flags) {
@@ -336,6 +339,7 @@ Commands:
 
   serve              Start built-in HTTP server (for standalone use)
     --port <N>          Port number (default 3000)
+    --host <addr>       Bind address (omit to listen on all interfaces)
 
   commit             Stage all changes and commit
     --message "msg"    Custom commit message

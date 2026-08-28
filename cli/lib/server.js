@@ -165,8 +165,20 @@ async function handleRequest(ctx, req, res) {
     serveStatic(res, filePath);
 }
 
+function listenUrl(addr) {
+    if (!addr || typeof addr === 'string') {
+        return `http://localhost/${addr || ''}`;
+    }
+    const raw = addr.address || 'localhost';
+    const host = raw === '::' || raw === '0.0.0.0' ? 'localhost'
+        : raw.includes(':') ? `[${raw}]`
+        : raw;
+    return `http://${host}:${addr.port}`;
+}
+
 export async function startServer(options = {}) {
     const port = parseInt(options.port, 10) || 3000;
+    const host = typeof options.host === 'string' ? options.host.trim() : '';
     const log = (msg) => process.stderr.write(msg + '\n');
     const storeOptions = {
         dbPath: options.dbPath || defaultDbPath(),
@@ -197,23 +209,26 @@ export async function startServer(options = {}) {
         handleRequest(ctx, req, res);
     });
 
+    const bind = (p) => (host ? server.listen(p, host) : server.listen(p));
+
     await new Promise((resolve, reject) => {
         server.on('listening', resolve);
         server.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
                 log(`Error: 端口 ${port} 已被占用，尝试端口 ${port + 1}`);
-                server.listen(port + 1);
+                bind(port + 1);
             } else {
                 reject(err);
             }
         });
-        server.listen(port);
+        bind(port);
     });
 
     const addr = server.address();
-    log(`\n  Server running at http://localhost:${addr.port}`);
+    const origin = listenUrl(addr);
+    log(`\n  Server running at ${origin}/`);
     log(`  Serving static files from: ${SRC_DIR}`);
-    log(`  API base: http://localhost:${addr.port}/api/v1/\n`);
+    log(`  API base: ${origin}/api/v1/\n`);
 
     const shutdown = async () => {
         log('\nShutting down...');

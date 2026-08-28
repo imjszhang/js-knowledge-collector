@@ -71,6 +71,11 @@
         "default": 3000,
         "description": "内置 HTTP 服务器端口"
       },
+      "serverHost": {
+        "type": "string",
+        "default": "",
+        "description": "内置 HTTP 服务器绑定地址（留空则听所有网卡；serve-ui 反代时用 127.0.0.1）"
+      },
       "autoStartServer": {
         "type": "boolean",
         "default": false,
@@ -159,6 +164,12 @@
       "label": "服务器端口",
       "placeholder": "3000",
       "help": "内置 HTTP 服务器端口号",
+      "advanced": true
+    },
+    "serverHost": {
+      "label": "服务器绑定地址",
+      "placeholder": "127.0.0.1",
+      "help": "留空听所有网卡。只给本机 serve-ui 反代时填 127.0.0.1",
       "advanced": true
     },
     "autoStartServer": {
