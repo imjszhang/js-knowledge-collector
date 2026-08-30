@@ -517,6 +517,7 @@ Restart OpenClaw to load the plugin.
 | `LLM_API_BASE_URL` | OpenAI-compatible API base URL |
 | `LLM_API_KEY` | LLM API key |
 | `LLM_API_MODEL` | LLM model name |
+| `LLM_HTTP_PROXY` | SOCKS/HTTP proxy for LLM only (not remote DB) |
 | `FLOMO_API_URL` | Flomo webhook URL |
 | `DB_PATH` | Local SQLite path (default `./data/data.db`) |
 | `API_TOKEN` | Bearer token protecting POST writes on the canonical server |
@@ -524,6 +525,7 @@ Restart OpenClaw to load the plugin.
 | `REMOTE_DB_BASE_URL` | Remote HTTP origin, e.g. `http://192.168.1.20:3000` |
 | `REMOTE_DB_API_PREFIX` | Default `/api/v1` |
 | `REMOTE_DB_TOKEN` | Bearer token matching the remote `API_TOKEN` |
+| `REMOTE_DB_HTTP_PROXY` | SOCKS/HTTP proxy for remote DB only (not LLM) |
 
 ## Verify
 

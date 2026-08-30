@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveDbConfig, isRemoteStore } from './db-config.js';
+import { resolveLlmProxyUrl, resolveRemoteDbProxyUrl } from './http-proxy-fetch.js';
 import Database from './database.js';
 import HttpRemoteDatabase from './http-database.js';
 import { openDatabase } from './db-config.js';
@@ -36,6 +37,26 @@ test('resolveDbConfig uses remote when enabled and baseUrl set', () => {
     assert.equal(cfg.remote.baseUrl, 'http://192.168.1.20:3000');
     assert.equal(cfg.remote.apiPrefix, '/api/v1');
     assert.equal(cfg.remote.token, 'secret');
+    assert.equal(cfg.remote.proxy, '');
+});
+
+test('remote DB proxy is independent from LLM proxy', () => {
+    const env = {
+        LLM_HTTP_PROXY: 'socks5://127.0.0.1:1080',
+        REMOTE_DB_HTTP_PROXY: 'socks5://127.0.0.1:1081',
+    };
+    assert.equal(resolveLlmProxyUrl(env), 'socks5://127.0.0.1:1080');
+    assert.equal(resolveRemoteDbProxyUrl(env), 'socks5://127.0.0.1:1081');
+    assert.equal(resolveRemoteDbProxyUrl({ LLM_HTTP_PROXY: 'socks5://127.0.0.1:1080' }), '');
+
+    const cfg = resolveDbConfig({
+        remote: {
+            enabled: true,
+            baseUrl: 'http://10.8.0.5:8888/knowledge',
+            proxy: 'socks5://127.0.0.1:1081',
+        },
+    });
+    assert.equal(cfg.remote.proxy, 'socks5://127.0.0.1:1081');
 });
 
 test('resolveDbConfig stays local when enabled without baseUrl', () => {

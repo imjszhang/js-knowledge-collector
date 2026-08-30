@@ -6,6 +6,7 @@
  */
 
 import OpenAI from 'openai';
+import { createProxiedFetch, resolveLlmProxyUrl } from './http-proxy-fetch.js';
 
 let _client = null;
 
@@ -14,7 +15,8 @@ function getClient() {
     const baseURL = process.env.LLM_API_BASE_URL;
     const apiKey = process.env.LLM_API_KEY;
     if (!baseURL || !apiKey) throw new Error('LLM_API_BASE_URL 和 LLM_API_KEY 环境变量未设置');
-    _client = new OpenAI({ apiKey, baseURL });
+    const fetchImpl = createProxiedFetch(resolveLlmProxyUrl());
+    _client = new OpenAI({ apiKey, baseURL, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
     return _client;
 }
 

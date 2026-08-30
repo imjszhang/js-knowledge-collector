@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from './database.js';
 import HttpRemoteDatabase from './http-database.js';
+import { createProxiedFetch, resolveRemoteDbProxyUrl } from './http-proxy-fetch.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
@@ -49,6 +50,7 @@ export function resolveDbConfig(overrides = {}) {
     const apiPrefix = (remote?.apiPrefix || process.env.REMOTE_DB_API_PREFIX || DEFAULT_API_PREFIX).trim()
         || DEFAULT_API_PREFIX;
     const token = remote?.token ?? process.env.REMOTE_DB_TOKEN ?? '';
+    const proxy = (remote?.proxy ?? resolveRemoteDbProxyUrl()).trim();
 
     if (enabled && baseUrl) {
         return {
@@ -59,6 +61,7 @@ export function resolveDbConfig(overrides = {}) {
                 baseUrl: baseUrl.replace(/\/$/, ''),
                 apiPrefix: apiPrefix.startsWith('/') ? apiPrefix : `/${apiPrefix}`,
                 token: String(token || ''),
+                proxy,
                 timeoutMs: remote?.timeoutMs,
                 writeTimeoutMs: remote?.writeTimeoutMs,
                 fetch: remote?.fetch,
@@ -76,7 +79,11 @@ export function resolveDbConfig(overrides = {}) {
 export async function openDatabase(overrides = {}) {
     const cfg = resolveDbConfig(overrides);
     if (cfg.mode === 'remote') {
-        const db = new HttpRemoteDatabase(cfg.remote);
+        const fetchImpl = cfg.remote.fetch || createProxiedFetch(cfg.remote.proxy);
+        const db = new HttpRemoteDatabase({
+            ...cfg.remote,
+            ...(fetchImpl ? { fetch: fetchImpl } : {}),
+        });
         await db.connect();
         return db;
     }
